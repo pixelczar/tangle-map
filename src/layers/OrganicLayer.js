@@ -8,10 +8,10 @@ import { BaseLayer } from './BaseLayer.js';
 export class OrganicLayer extends BaseLayer {
   constructor() {
     super('organic', 2);
-    this.color = 'rgba(0, 150, 120, 0.8)'; // More prominent teal color
-    this.lineWidth = 2.5; // Thicker lines
+    this.color = 'rgba(0, 150, 120, 0.5)'; // More prominent teal color
+    this.lineWidth = 1.5; // Thicker lines
     // Scale adjustments for broader, more legible meanders
-    this.noiseScale = 0.006;
+    this.noiseScale = 0.09;
     this.angleVariation = 0.5;
     this.stepSize = { min: 3, max: 6 };
     this.pointCount = { min: 60, max: 100 }; // Even larger organic flows

@@ -26,14 +26,49 @@ export class ClusterSystem {
    * @param {number} count - Number of clusters (default: 3)
    * @returns {Array} Array of cluster objects
    */
-  generateClusters(random, count = 3) {
+  generateClusters(random, count = 3, gridSize = 64) {
     this.clusters = [];
     
-    for (let i = 0; i < count; i++) {
+    // Calculate grid bounds
+    const centerX = this.width / 2;
+    const centerY = this.height / 2;
+    const gridWidth = this.compositionWidth;
+    const gridHeight = this.compositionHeight;
+    
+    const leftBound = centerX - (gridWidth / 2);
+    const rightBound = centerX + (gridWidth / 2);
+    const topBound = centerY - (gridHeight / 2);
+    const bottomBound = centerY + (gridHeight / 2);
+    
+    // Generate grid intersection points
+    const gridPoints = [];
+    const startX = Math.ceil(leftBound / gridSize) * gridSize;
+    const endX = Math.floor(rightBound / gridSize) * gridSize;
+    const startY = Math.ceil(topBound / gridSize) * gridSize;
+    const endY = Math.floor(bottomBound / gridSize) * gridSize;
+    
+    for (let x = startX; x <= endX; x += gridSize) {
+      for (let y = startY; y <= endY; y += gridSize) {
+        if (x > leftBound && x < rightBound && y > topBound && y < bottomBound) {
+          gridPoints.push({ x, y });
+        }
+      }
+    }
+    
+    // Select random grid points for clusters
+    const selectedPoints = [];
+    for (let i = 0; i < count && gridPoints.length > 0; i++) {
+      const randomIndex = Math.floor(random.random() * gridPoints.length);
+      const point = gridPoints.splice(randomIndex, 1)[0]; // Remove to avoid duplicates
+      selectedPoints.push(point);
+    }
+    
+    for (let i = 0; i < selectedPoints.length; i++) {
+      const point = selectedPoints[i];
       const cluster = {
         id: i,
-        x: this.padding + random.random() * this.compositionWidth,
-        y: this.padding + random.random() * this.compositionHeight,
+        x: point.x,
+        y: point.y,
         radius: 80 + random.random() * 120,
         intensity: 0.6 + random.random() * 0.4,
         type: random.randomInt(0, 2), // 0: dense, 1: sparse, 2: flowing

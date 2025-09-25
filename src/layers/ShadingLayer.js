@@ -45,6 +45,14 @@ export class ShadingLayer extends BaseLayer {
       const gridY = Math.round(cluster.y / gridSize) * gridSize;
       shadingCenters.push({ x: gridX, y: gridY });
     });
+    
+    // Add some additional grid-aligned points for more variety
+    const extraGridPoints = 3 + Math.floor(random.random() * 4); // 3-6 extra points
+    for (let i = 0; i < extraGridPoints; i++) {
+      const gridX = Math.round((padding + random.random() * (width - 2 * padding)) / gridSize) * gridSize;
+      const gridY = Math.round((padding + random.random() * (height - 2 * padding)) / gridSize) * gridSize;
+      shadingCenters.push({ x: gridX, y: gridY });
+    }
 
     // Create fewer, smaller shading areas
     const shadingCount = Math.min(shadingCenters.length, 4 + Math.floor(random.random() * 4)); // 4-7 areas
@@ -53,7 +61,9 @@ export class ShadingLayer extends BaseLayer {
       const center = shadingCenters[Math.floor(random.random() * shadingCenters.length)];
       const centerX = center.x;
       const centerY = center.y;
-      const size = (60 + random.random() * 80); // Smaller size range (60-140)
+      // Make size grid-aligned as well
+      const baseSize = 60 + random.random() * 80; // Smaller size range (60-140)
+      const size = Math.round(baseSize / gridSize) * gridSize; // Snap to grid
         
         const shadingArea = {
           centerX, centerY, size,
@@ -64,7 +74,7 @@ export class ShadingLayer extends BaseLayer {
           zOffset: i * 2, // Stagger Z positions
           inBounds: this.isInBounds(centerX - size, centerY - size, width, height, padding) &&
                    this.isInBounds(centerX + size, centerY + size, width, height, padding),
-          boundary: this.generateRectOrganicBoundary(centerX, centerY, size, random)
+          boundary: this.generateRectOrganicBoundary(centerX, centerY, size, random, gridSize)
         };
         
         // Generate pattern-specific data
@@ -76,31 +86,52 @@ export class ShadingLayer extends BaseLayer {
     return data;
   }
 
-  // New boundary: compact, rect-like organic shape aligned to axes
-  generateRectOrganicBoundary(centerX, centerY, size, random) {
-    const width = size * (0.8 + random.random() * 0.6);  // 0.8-1.4x size
-    const height = size * (0.6 + random.random() * 0.6); // 0.6-1.2x size
-    const segmentsPerEdge = 5; // few points per edge
-    const jitter = Math.min(width, height) * 0.08;
+  // Grid-aligned boundary: rectangular shapes that snap to grid intersections
+  generateRectOrganicBoundary(centerX, centerY, size, random, gridSize = 32) {
+    // Snap center to grid
+    const gridCenterX = Math.round(centerX / gridSize) * gridSize;
+    const gridCenterY = Math.round(centerY / gridSize) * gridSize;
+    
+    // Create grid-aligned dimensions (multiples of grid size)
+    const gridWidth = Math.max(1, Math.floor(size / gridSize)) * gridSize;
+    const gridHeight = Math.max(1, Math.floor(size * 0.8 / gridSize)) * gridSize;
+    
+    // Add some variation but keep it grid-aligned
+    const widthVariation = random.random() > 0.5 ? gridSize : 0;
+    const heightVariation = random.random() > 0.5 ? gridSize : 0;
+    
+    const finalWidth = gridWidth + widthVariation;
+    const finalHeight = gridHeight + heightVariation;
+    
+    // Create grid-aligned corners
     const corners = [
-      { x: centerX - width / 2, y: centerY - height / 2 },
-      { x: centerX + width / 2, y: centerY - height / 2 },
-      { x: centerX + width / 2, y: centerY + height / 2 },
-      { x: centerX - width / 2, y: centerY + height / 2 }
+      { x: gridCenterX - finalWidth / 2, y: gridCenterY - finalHeight / 2 },
+      { x: gridCenterX + finalWidth / 2, y: gridCenterY - finalHeight / 2 },
+      { x: gridCenterX + finalWidth / 2, y: gridCenterY + finalHeight / 2 },
+      { x: gridCenterX - finalWidth / 2, y: gridCenterY + finalHeight / 2 }
     ];
+    
+    // Create boundary with minimal jitter to maintain grid alignment
     const boundary = [];
+    const segmentsPerEdge = 3; // Fewer segments for cleaner grid alignment
+    const jitter = gridSize * 0.1; // Very small jitter to maintain grid feel
+    
     for (let c = 0; c < 4; c++) {
       const a = corners[c];
       const b = corners[(c + 1) % 4];
       for (let i = 0; i <= segmentsPerEdge; i++) {
         const t = i / segmentsPerEdge;
-        const x = a.x + (b.x - a.x) * t;
-        const y = a.y + (b.y - a.y) * t;
-        const nx = y - centerY; // perpendicular components for jitter
-        const ny = -(x - centerX);
-        const len = Math.hypot(nx, ny) || 1;
-        const j = (random.random() - 0.5) * jitter;
-        boundary.push({ x: x + (nx / len) * j, y: y + (ny / len) * j });
+        let x = a.x + (b.x - a.x) * t;
+        let y = a.y + (b.y - a.y) * t;
+        
+        // Add minimal jitter while keeping grid alignment
+        if (i > 0 && i < segmentsPerEdge) {
+          const j = (random.random() - 0.5) * jitter;
+          x += j;
+          y += j;
+        }
+        
+        boundary.push({ x, y });
       }
     }
     return boundary;

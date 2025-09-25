@@ -7,9 +7,9 @@ import { BaseLayer } from './BaseLayer.js';
 
 export class ArcLayer extends BaseLayer {
   constructor() {
-    super('arcs', -8);
-    this.color = 'rgba(25, 70, 110, 0.35)'; // softer default
-    this.lineWidth = 0.9; // thinner
+    super('arcs', -7); // Changed from -8 to avoid conflict with TownPlotsLayer
+    this.color = 'rgba(25, 70, 110, 0.5)'; // more noticeable
+    this.lineWidth = 1.2; // slightly thicker
     this.arcCountRange = { min: 2, max: 4 }; // fewer overall
     this.radiusRange = { min: 80, max: 220 }; // slightly larger to feel airy
     this.spanRange = { min: Math.PI * 0.15, max: Math.PI * 0.65 };
@@ -96,31 +96,32 @@ export class ArcLayer extends BaseLayer {
   generateClusterDonuts(center, clusters, random, gridSize) {
     const arcs = [];
     const colors = [
-      'rgba(25, 70, 110, 0.6)',   // Original blue
-      'rgba(80, 40, 60, 0.5)',    // Muted purple
-      'rgba(40, 80, 40, 0.5)',    // Muted green
+      'rgba(25, 70, 110, 0.4)',   // Lighter blue
+      'rgba(80, 40, 60, 0.3)',    // Lighter purple
+      'rgba(40, 80, 40, 0.3)',    // Lighter green
     ];
     
-    // Create 1-2 donut shapes around the cluster
-    const numDonuts = 1 + Math.floor(random.random() * 2);
+    // Create concentric rings radiating from cluster center
+    const numRings = 2 + Math.floor(random.random() * 3); // 2-4 rings
     
-    for (let i = 0; i < numDonuts; i++) {
-      const baseRadius = this.radiusRange.min + random.random() * (this.radiusRange.max - this.radiusRange.min);
+    for (let ring = 0; ring < numRings; ring++) {
+      const baseRadius = (this.radiusRange.min + ring * 30) + random.random() * 20;
       const gridAlignedRadius = Math.round(baseRadius / gridSize) * gridSize;
       
-      // Create donut (full circle with inner radius)
-      const innerRadius = gridAlignedRadius * (0.3 + random.random() * 0.4); // 30-70% of outer radius
+      // Create concentric ring (no inner radius, just outline)
+      const startAngle = random.random() * Math.PI * 2;
+      const spanAngle = (Math.PI * 0.3) + random.random() * (Math.PI * 1.2); // 30-150 degrees (incomplete)
       
       arcs.push({
         cx: center.x,
         cy: center.y,
         r: gridAlignedRadius,
-        innerRadius: innerRadius,
-        start: 0,
-        end: Math.PI * 2,
+        innerRadius: 0, // No inner radius for rings
+        start: startAngle,
+        end: startAngle + spanAngle,
         color: colors[Math.floor(random.random() * colors.length)],
-        shouldDrawCircle: false, // Don't draw additional circles for donuts
-        type: 'donut'
+        shouldDrawCircle: false,
+        type: 'ring'
       });
     }
     
@@ -130,29 +131,30 @@ export class ArcLayer extends BaseLayer {
   generateIntersectionDonuts(center, random, gridSize) {
     const arcs = [];
     const colors = [
-      'rgba(25, 70, 110, 0.4)',   // Lighter blue
-      'rgba(80, 40, 60, 0.3)',    // Lighter purple
-      'rgba(40, 80, 40, 0.3)',    // Lighter green
+      'rgba(25, 70, 110, 0.3)',   // Even lighter blue
+      'rgba(80, 40, 60, 0.2)',    // Even lighter purple
+      'rgba(40, 80, 40, 0.2)',    // Even lighter green
     ];
     
-    // Create smaller donuts at intersections (50% chance)
-    if (random.random() < 0.5) {
-      const baseRadius = (this.radiusRange.min * 0.5) + random.random() * (this.radiusRange.max * 0.5 - this.radiusRange.min * 0.5);
+    // Create smaller incomplete rings at intersections (30% chance)
+    if (random.random() < 0.3) {
+      const baseRadius = (this.radiusRange.min * 0.6) + random.random() * (this.radiusRange.max * 0.4);
       const gridAlignedRadius = Math.round(baseRadius / gridSize) * gridSize;
       
-      // Create smaller donut
-      const innerRadius = gridAlignedRadius * (0.4 + random.random() * 0.3); // 40-70% of outer radius
+      // Create incomplete ring
+      const startAngle = random.random() * Math.PI * 2;
+      const spanAngle = (Math.PI * 0.2) + random.random() * (Math.PI * 0.8); // 20-100 degrees (shorter)
       
       arcs.push({
         cx: center.x,
         cy: center.y,
         r: gridAlignedRadius,
-        innerRadius: innerRadius,
-        start: 0,
-        end: Math.PI * 2,
+        innerRadius: 0, // No inner radius
+        start: startAngle,
+        end: startAngle + spanAngle,
         color: colors[Math.floor(random.random() * colors.length)],
         shouldDrawCircle: false,
-        type: 'donut'
+        type: 'ring'
       });
     }
     
@@ -369,25 +371,16 @@ export class ArcLayer extends BaseLayer {
       this.renderArcGridFills(ctx, data.arcGridFills, { transform3D, time, is3D, scale });
     }
 
-    // Render arcs with color variation (toned down)
+    // Render arcs as simple rings (no pie slices)
     data.arcs.forEach((arc, i) => {
       const center = transform3D.transform(arc.cx, arc.cy, this.zIndex, time, is3D);
       const arcColor = arc.color || this.color;
       
-      if (arc.type === 'donut') {
-        // Render donut shape
-        this.renderDonut(ctx, center, arc, scale, arcColor);
-      } else {
-        // Render traditional arc
-        const passes = 1; // fewer passes to reduce boldness
-        for (let p = 0; p < passes; p++) {
-          const radius = arc.r * scale * (1 + p * 0.02);
-          this.setLineStyle(ctx, arcColor, this.lineWidth * scale);
-          ctx.beginPath();
-          ctx.arc(center.x, center.y, radius, arc.start, arc.end);
-          ctx.stroke();
-        }
-      }
+      // Render as simple arc/ring outline
+      this.setLineStyle(ctx, arcColor, this.lineWidth * scale);
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, arc.r * scale, arc.start, arc.end);
+      ctx.stroke();
     });
 
     // Optional full circle outlines (reduced)
@@ -415,21 +408,6 @@ export class ArcLayer extends BaseLayer {
     }
   }
 
-  renderDonut(ctx, center, arc, scale, color) {
-    const outerRadius = arc.r * scale;
-    const innerRadius = arc.innerRadius * scale;
-    
-    // Draw outer circle
-    this.setLineStyle(ctx, color, this.lineWidth * scale);
-    ctx.beginPath();
-    ctx.arc(center.x, center.y, outerRadius, 0, Math.PI * 2);
-    ctx.stroke();
-    
-    // Draw inner circle
-    ctx.beginPath();
-    ctx.arc(center.x, center.y, innerRadius, 0, Math.PI * 2);
-    ctx.stroke();
-  }
 
   renderArcGridFills(ctx, arcGridFills, { transform3D, time, is3D, scale }) {
     arcGridFills.forEach(fill => {
