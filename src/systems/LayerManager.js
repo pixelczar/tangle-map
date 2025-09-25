@@ -11,6 +11,7 @@ import { FlowLayer } from '../layers/FlowLayer.js';
 import { ShadingLayer } from '../layers/ShadingLayer.js';
 import { CoreLayer } from '../layers/CoreLayer.js';
 import { ArcLayer } from '../layers/ArcLayer.js';
+import { TownPlotsLayer } from '../layers/TownPlotsLayer.js';
 import { PanelLayer } from '../layers/PanelLayer.js';
 import { ParticleBurstLayer } from '../layers/ParticleBurstLayer.js';
 
@@ -31,6 +32,7 @@ export class LayerManager {
       new PanelLayer(),
       new ArcLayer(),
       new InfrastructureLayer(),
+      new TownPlotsLayer(),
       new ParticleBurstLayer(),
       new NodeLayer(),
       new OrganicLayer(),
@@ -84,7 +86,9 @@ export class LayerManager {
       }
       
       const layer = this.layers.get(layerName);
-      const layerData = layer.generateData(params);
+      // Pass allData to layers that need access to previously generated data
+      const layerParams = { ...params, allData };
+      const layerData = layer.generateData(layerParams);
       allData.set(layerName, layerData);
     });
 
@@ -259,6 +263,14 @@ export class LayerManager {
     Object.entries(layerStates).forEach(([layerName, enabled]) => {
       this.setLayerEnabled(layerName, enabled);
     });
+  }
+
+  /**
+   * Set layer rendering order
+   * @param {Array} order - Array of layer names in rendering order
+   */
+  setLayerOrder(order) {
+    this.layerOrder = order;
   }
 
   /**

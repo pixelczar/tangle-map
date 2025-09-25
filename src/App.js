@@ -15,13 +15,12 @@ const STORAGE_KEYS = {
   layers: 'tm_layers',
   showControls: 'tm_showControls',
   expandedLayers: 'tm_expandedLayers',
-  isAnimating: 'tm_isAnimating'
+  layerOrder: 'tm_layerOrder'
 };
 
 const TangleMapApp = () => {
   // Application component for Tangle Map generative art tool
   const canvasRef = useRef(null);
-  const animationRef = useRef(null);
   const layerManagerRef = useRef(new LayerManager());
   const clusterSystemRef = useRef(null);
   const transform3DRef = useRef(null);
@@ -31,21 +30,22 @@ const TangleMapApp = () => {
   const getInitialState = () => {
     if (typeof window === 'undefined' || !window.localStorage) {
       return {
-        isAnimating: false,
         layers: {
           grid: true,
           panels: true,
           arcs: true,
           infrastructure: true,
+          plotAreas: true,
           particles: true,
           nodes: true,
           organic: true,
-          flow: true,
+          flow: true, // FORCE ENABLE FLOW LAYER
           shading: true,
           cores: true
         },
         showControls: true,
-        expandedLayers: {}
+        expandedLayers: {},
+        layerOrder: [] // Will be set by LayerManager based on z-index
       };
     }
 
@@ -56,6 +56,7 @@ const TangleMapApp = () => {
         panels: true,
         arcs: true,
         infrastructure: true,
+        plotAreas: true,
         particles: true,
         nodes: true,
         organic: true,
@@ -63,6 +64,13 @@ const TangleMapApp = () => {
         shading: true,
         cores: true
       };
+      
+      
+      // FORCE ENABLE FLOW LAYER - it must always be on!
+      savedLayers.flow = true;
+      
+      // FORCE ENABLE PLOT AREAS LAYER - it must always be on!
+      savedLayers.plotAreas = true;
 
       const savedShowControlsRaw = localStorage.getItem(STORAGE_KEYS.showControls);
       const savedShowControls = savedShowControlsRaw === 'true' || savedShowControlsRaw === 'false' 
@@ -71,22 +79,19 @@ const TangleMapApp = () => {
 
       const savedExpandedRaw = localStorage.getItem(STORAGE_KEYS.expandedLayers);
       const savedExpanded = savedExpandedRaw ? JSON.parse(savedExpandedRaw) : {};
-
-      const savedAnimatingRaw = localStorage.getItem(STORAGE_KEYS.isAnimating);
-      const savedAnimating = savedAnimatingRaw === 'true' || savedAnimatingRaw === 'false' 
-        ? savedAnimatingRaw === 'true' 
-        : false;
+      
+      const savedLayerOrderRaw = localStorage.getItem(STORAGE_KEYS.layerOrder);
+      const savedLayerOrder = savedLayerOrderRaw ? JSON.parse(savedLayerOrderRaw) : []; // Will be set by LayerManager
 
       return {
-        isAnimating: savedAnimating,
         layers: savedLayers,
         showControls: savedShowControls,
-        expandedLayers: savedExpanded
+        expandedLayers: savedExpanded,
+        layerOrder: savedLayerOrder
       };
     } catch (e) {
       console.warn('Failed to load initial state from localStorage:', e);
       return {
-        isAnimating: false,
         layers: {
           grid: true,
           panels: true,
@@ -108,7 +113,6 @@ const TangleMapApp = () => {
   const initialState = getInitialState();
 
   // State management
-  const [isAnimating, setIsAnimating] = useState(initialState.isAnimating);
   const [seed, setSeed] = useState(42);
   const [layers, setLayers] = useState(initialState.layers);
   const [showControls, setShowControls] = useState(initialState.showControls);
@@ -116,9 +120,11 @@ const TangleMapApp = () => {
   const [parameters, setParameters] = useState({
     clusterCount: 3, // Default cluster count
     padding: 120,
-    animationSpeed: 1.0,
     noiseScale: 0.02
   });
+  const [layerOrder, setLayerOrder] = useState(initialState.layerOrder);
+  const [draggedLayer, setDraggedLayer] = useState(null);
+  const [dragOverLayer, setDragOverLayer] = useState(null);
 
   // Note: State is now initialized with localStorage values directly, no hydration needed
 
@@ -144,12 +150,15 @@ const TangleMapApp = () => {
     } catch {}
   }, [expandedLayers]);
 
+  // Persist layer order state
   useEffect(() => {
     try {
       if (typeof window === 'undefined' || !window.localStorage) return;
-      localStorage.setItem(STORAGE_KEYS.isAnimating, isAnimating ? 'true' : 'false');
+      localStorage.setItem(STORAGE_KEYS.layerOrder, JSON.stringify(layerOrder));
     } catch {}
-  }, [isAnimating]);
+  }, [layerOrder]);
+
+
 
   // Main rendering function - defined first to avoid temporal dead zone
   const render = useCallback((time = 0, regenerateData = true) => {
@@ -178,7 +187,7 @@ const TangleMapApp = () => {
     // Generate clusters only when needed
     let clusters;
     if (regenerateData || !clusterSystemRef.current.clusters.length) {
-      clusters = clusterSystemRef.current.generateClusters(randomRef.current, parameters.clusterCount);
+      clusters = clusterSystemRef.current.generateClusters(randomRef.current, parameters.clusterCount, 64);
     } else {
       clusters = clusterSystemRef.current.getClusters(randomRef.current);
     }
@@ -187,7 +196,7 @@ const TangleMapApp = () => {
     const renderParams = {
       width,
       height,
-      time: time * parameters.animationSpeed,
+      time: time,
       clusters,
       random: randomRef.current,
       noise: randomRef.current.noise.bind(randomRef.current),
@@ -199,7 +208,7 @@ const TangleMapApp = () => {
     // Render all layers
     layerManagerRef.current.renderAll(ctx, renderParams, regenerateData);
     
-  }, [parameters.animationSpeed, parameters.padding, parameters.clusterCount]);
+  }, [parameters.padding, parameters.clusterCount]);
 
   // Removed resize on controls toggle to avoid redraw; canvas remains constant size
 
@@ -212,13 +221,15 @@ const TangleMapApp = () => {
     clusterSystemRef.current = new ClusterSystem(rect.width, rect.height, parameters.padding);
     transform3DRef.current = new Transform3D(rect.width, rect.height);
     
+    // Initialize layer order from LayerManager if not already set
+    if (layerOrder.length === 0) {
+      const managerOrder = layerManagerRef.current.layerOrder;
+      setLayerOrder(managerOrder);
+    }
+    
     return () => {
-      const currentAnimation = animationRef.current;
       const currentTimeout = debouncedRenderRef.current;
       const currentRenderTimeout = renderTimeoutRef.current;
-      if (currentAnimation) {
-        cancelAnimationFrame(currentAnimation);
-      }
       // Clean up debounced render timeout
       if (currentTimeout) {
         clearTimeout(currentTimeout);
@@ -227,7 +238,7 @@ const TangleMapApp = () => {
         clearTimeout(currentRenderTimeout);
       }
     };
-  }, [parameters.padding]);
+  }, [parameters.padding, layerOrder.length]);
 
 
   // Update random seed when changed
@@ -264,34 +275,11 @@ const TangleMapApp = () => {
     }
   }, [parameters.clusterCount, render]);
 
-  // Animation loop
+  // Initial render
   useEffect(() => {
-    let startTime = Date.now();
-    let animationId = null;
-    
-    const animate = () => {
-      if (isAnimating) {
-        const time = Date.now() - startTime;
-        // Only animate the rendering, don't regenerate data
-        render(time, false); // false = don't regenerate data
-        animationId = requestAnimationFrame(animate);
-      }
-    };
-    
     // Initial render with data generation
     render(0, true); // true = generate data
-    
-    // Start animation if enabled
-    if (isAnimating) {
-      animationId = requestAnimationFrame(animate);
-    }
-
-    return () => {
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-      }
-    };
-  }, [render, isAnimating]);
+  }, [render]);
 
 
   // Layer toggle handler
@@ -330,6 +318,58 @@ const TangleMapApp = () => {
       [layerName]: !prev[layerName]
     }));
   }, []);
+
+  // Drag and drop functions
+  const handleDragStart = useCallback((e, layerName) => {
+    setDraggedLayer(layerName);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', e.target.outerHTML);
+    e.target.style.opacity = '0.5';
+  }, []);
+
+  const handleDragEnd = useCallback((e) => {
+    e.target.style.opacity = '1';
+    setDraggedLayer(null);
+    setDragOverLayer(null);
+  }, []);
+
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleDragEnter = useCallback((e, layerName) => {
+    e.preventDefault();
+    setDragOverLayer(layerName);
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    // Only clear if we're leaving the entire layer item, not just moving between child elements
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setDragOverLayer(null);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e, targetLayerName) => {
+    e.preventDefault();
+    
+    if (draggedLayer && draggedLayer !== targetLayerName) {
+      const newOrder = [...layerOrder];
+      const draggedIndex = newOrder.indexOf(draggedLayer);
+      const targetIndex = newOrder.indexOf(targetLayerName);
+      
+      // Remove dragged layer from its current position
+      newOrder.splice(draggedIndex, 1);
+      
+      // Insert at new position
+      const newTargetIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex;
+      newOrder.splice(newTargetIndex, 0, draggedLayer);
+      
+      setLayerOrder(newOrder);
+    }
+    
+    setDragOverLayer(null);
+  }, [draggedLayer, layerOrder]);
 
   // Debounced render for parameter updates
   const debouncedRenderRef = useRef(null);
@@ -377,6 +417,18 @@ const TangleMapApp = () => {
     }
   }, [render]);
 
+  // Update layer manager order when layer order changes
+  useEffect(() => {
+    if (layerManagerRef.current) {
+      // Ensure layer order is not empty before setting it
+      if (layerOrder.length > 0) {
+        layerManagerRef.current.setLayerOrder(layerOrder);
+        // Trigger a re-render when layer order changes
+        triggerRender();
+      }
+    }
+  }, [layerOrder, triggerRender]);
+
   // Render parameters for a specific layer
   const renderLayerParameters = useCallback((layerName) => {
     const layer = layerManagerRef.current.getLayer(layerName);
@@ -415,20 +467,66 @@ const TangleMapApp = () => {
       );
     };
 
-    const renderColorInput = (paramName, displayName) => (
-      <div key={paramName}>
-        <label className="block text-xs text-gray-600 mb-1">{displayName}</label>
-        <input
-          type="text"
-          defaultValue={layer[paramName] || ''}
-          onChange={(e) => updateLayerParameter(layerName, paramName, e.target.value)}
-          onBlur={triggerRender}
-          onKeyDown={(e) => e.key === 'Enter' && triggerRender()}
-          className="w-full px-2 py-1 text-xs border rounded font-mono"
-          placeholder="rgba(r,g,b,a)"
-        />
-      </div>
-    );
+    const renderColorInput = (paramName, displayName) => {
+      // Parse rgba string to extract RGB values and alpha
+      const parseRgba = (rgba) => {
+        if (!rgba || !rgba.includes('rgba')) return { r: 120, g: 140, b: 160, a: 0.2 };
+        const match = rgba.match(/rgba?\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
+        if (!match) return { r: 120, g: 140, b: 160, a: 0.2 };
+        return {
+          r: parseInt(match[1]),
+          g: parseInt(match[2]),
+          b: parseInt(match[3]),
+          a: parseFloat(match[4])
+        };
+      };
+
+      // Convert RGB to hex for color picker
+      const rgbToHex = (r, g, b) => {
+        return `#${[r, g, b].map(x => x.toString(16).padStart(2, '0')).join('')}`;
+      };
+
+      // Convert hex to rgba preserving existing alpha
+      const hexToRgba = (hex, alpha) => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      };
+
+      const currentValue = layer[paramName] || 'rgba(120, 140, 160, 0.2)';
+      const { r, g, b, a } = parseRgba(currentValue);
+      const currentHex = rgbToHex(r, g, b);
+
+      return (
+        <div key={paramName}>
+          <label className="block text-xs text-gray-600 mb-1">{displayName}</label>
+          <div className="flex items-center space-x-2">
+            <input
+              type="color"
+              value={currentHex}
+              onChange={(e) => {
+                // Preserve existing alpha value when color picker changes
+                const newRgba = hexToRgba(e.target.value, a);
+                updateLayerParameter(layerName, paramName, newRgba);
+                // Don't trigger render on color picker change - let text input handle it
+              }}
+              className="w-8 h-6 border border-gray-300 rounded cursor-pointer"
+              title={`Pick ${displayName.toLowerCase()}`}
+            />
+            <input
+              type="text"
+              value={currentValue}
+              onChange={(e) => updateLayerParameter(layerName, paramName, e.target.value)}
+              onBlur={triggerRender}
+              onKeyDown={(e) => e.key === 'Enter' && triggerRender()}
+              className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-slate-400"
+              placeholder="rgba(r,g,b,a)"
+            />
+          </div>
+        </div>
+      );
+    };
 
     switch (layerName) {
       case 'grid':
@@ -466,12 +564,18 @@ const TangleMapApp = () => {
       case 'infrastructure':
         return (
           <>
-            {renderSlider('baseLineWidth', 0.5, 3, 0.1, 'px')}
             {renderSlider('connectionLineWidth', 0.3, 2, 0.1, 'px')}
             {renderSlider('staticLineWidth', 1, 5, 0.2, 'px')}
-            {renderColorInput('structureColor', 'Structure Color')}
             {renderColorInput('connectionColor', 'Connection Color')}
             {renderColorInput('staticLineColor', 'Static Line Color')}
+          </>
+        );
+
+      case 'plotAreas':
+        return (
+          <>
+            {renderSlider('baseLineWidth', 0.5, 3, 0.1, 'px')}
+            {renderColorInput('structureColor', 'Plot Color')}
           </>
         );
 
@@ -562,16 +666,29 @@ const TangleMapApp = () => {
             <h1 className="text-4xl instrument-serif text-gray-800 drop-shadow-sm">Tangle Map</h1>
           </div>
 
-          {/* Show Controls Button - Far right top corner with opacity transition */}
+          {/* Footer */}
+          <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-center">
+            <p className="font-serif text-gray-500">
+            Robotic by nature, organic by design  •  {new Date().getFullYear()}, PixelCzar ©
+            </p>
+          </div>
+
+          {/* Top Right Buttons - Far right top corner with opacity transition */}
           <div 
-            className="absolute top-4 right-4 transition-opacity duration-300 ease-in-out"
+            className="absolute top-4 right-4 transition-opacity duration-300 ease-in-out flex gap-2"
             style={{ opacity: showControls ? 0 : 1, pointerEvents: showControls ? 'none' : 'auto' }}
           >
+            <button
+              onClick={regenerate}
+              className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200"
+            >
+              Redraw
+            </button>
             <button
               onClick={() => setShowControls(true)}
               className="px-3 py-1.5 bg-slate-700 text-white rounded-lg shadow-md hover:bg-slate-800 transition-colors text-xs font-medium"
             >
-              Show Controls
+              Controls
             </button>
           </div>
         </div>
@@ -600,12 +717,41 @@ const TangleMapApp = () => {
           <div className="mb-6">
             <h3 className="text-sm font-semibold mb-3 text-gray-700">Layers</h3>
             <div className="space-y-1">
-              {Object.entries(layers)
-                .filter(([key]) => key !== 'panels')
-                .map(([key, value]) => (
-                <div key={key}>
+              {layerOrder
+                .filter(key => key !== 'panels' && layers.hasOwnProperty(key))
+                .map((key) => {
+                  const value = layers[key];
+                  const isDragging = draggedLayer === key;
+                  const isDragOver = dragOverLayer === key;
+                  
+                  return (
+                <div 
+                  key={key}
+                  className={`transition-all duration-200 ease-in-out ${
+                    isDragging ? 'opacity-50 scale-95' : ''
+                  } ${
+                    isDragOver ? 'transform translate-y-1' : ''
+                  }`}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, key)}
+                  onDragEnd={handleDragEnd}
+                  onDragOver={handleDragOver}
+                  onDragEnter={(e) => handleDragEnter(e, key)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, key)}
+                >
                   {/* Layer Toggle Row */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center">
+                    {/* Drag Handle */}
+                    <div 
+                      className="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-100 rounded transition-colors"
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M7 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>
+                      </svg>
+                    </div>
+                    
                     <label className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => toggleLayer(key)}>
                       <div
                         className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
@@ -618,7 +764,9 @@ const TangleMapApp = () => {
                           }`}
                         />
                       </div>
-                      <span className="text-sm capitalize text-gray-700">{key}</span>
+                      <span className="text-sm capitalize text-gray-700">
+                        {key === 'plotAreas' ? 'Plot Areas' : key}
+                      </span>
                     </label>
                     {/* Expand/Collapse Chevron */}
                     <button
@@ -643,7 +791,8 @@ const TangleMapApp = () => {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+                })}
             </div>
           </div>
 
@@ -666,42 +815,12 @@ const TangleMapApp = () => {
                   style={{ accentColor: '#334155' }}
                 />
               </div>
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs text-gray-600">Animation Speed</label>
-                  <span className="text-xs text-gray-500 font-mono">{parameters.animationSpeed}x</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="3"
-                  step="0.1"
-                  value={parameters.animationSpeed}
-                  onChange={(e) => updateParameter('animationSpeed', parseFloat(e.target.value))}
-                  className="w-full"
-                  style={{ accentColor: '#334155' }}
-                />
-              </div>
             </div>
           </div>
 
           {/* Controls */}
           <div className="space-y-3">
             
-            <button
-              onClick={() => {
-                setIsAnimating(!isAnimating);
-                // Force a render when toggling animation
-                setTimeout(() => {
-                  if (canvasRef.current) {
-                    render(0, false); // Don't regenerate data for animation toggle
-                  }
-                }, 0);
-              }}
-              className="w-full py-1.5 px-3 bg-transparent border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors text-xs font-medium"
-            >
-              {isAnimating ? 'Pause' : 'Animate'}
-            </button>
             
             <button
               onClick={regenerate}

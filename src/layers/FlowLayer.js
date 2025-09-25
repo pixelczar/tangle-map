@@ -8,29 +8,31 @@ import { BaseLayer } from './BaseLayer.js';
 export class FlowLayer extends BaseLayer {
   constructor() {
     super('flow', 3);
-    this.color = 'rgba(22, 96, 108, 0.55)';
+    this.color = 'rgba(80, 140, 222, 0.4)';
     this.lineWidth = 1.0;
     
     // River meander parameters (low-frequency, gentle)
     this.noiseScale = 0.0025; // lower frequency = wider, calmer bends
     this.stepSize = 12; // smaller steps for smoother paths
-    this.primaryWidth = 2.6;
-    this.secondaryWidth = 1.6;
+    this.primaryWidth = 4.2;
+    this.secondaryWidth = 1.2;
     
     // Soft junction semantics (kept for compatibility, not rendered specially)
-    this.intersectionRadius = 25;
-    this.interestPointRadius = 12;
-    this.interestPointDensity = 0.4;
+    this.intersectionRadius = 20;
+    this.interestPointRadius = 10;
+    this.interestPointDensity = 0.9;
     
     // Counts and curvature
-    this.primaryRoadCount = { min: 1, max: 2 };
-    this.secondaryRoadCount = { min: 1, max: 3 };
+    this.primaryRoadCount = { min: 1, max: 1 }; // Fewer primary rivers
+    this.secondaryRoadCount = { min: 1, max: 3 }; // More secondary rivers
     this.roadCurviness = 0.35; // meander strength (0-1)
     this.roadLength = { min: 180, max: 360 };
   }
 
   generateData(params) {
     const { clusters, random, width, height, padding, noise } = params;
+    
+    console.log('FlowLayer: Generating data with', clusters.length, 'clusters');
     
     const data = {
       roads: [],
@@ -50,7 +52,7 @@ export class FlowLayer extends BaseLayer {
         if (clusterA === clusterB) continue;
         
         // Create a river-like path between them
-        const road = this.createRiverRoad(clusterA, clusterB, random, noise, width, height, 'primary');
+        const road = this.createRiverRoad(clusterA, clusterB, random, noise, width, height, 'primary', padding);
         if (road.points.length > 5) {
           data.roads.push(road);
         }
@@ -58,7 +60,7 @@ export class FlowLayer extends BaseLayer {
         // Create a river that flows to canvas edges
         const startCluster = clusters[Math.floor(random.random() * clusters.length)];
         const edgeTarget = this.generateEdgeTarget(random, width, height, padding);
-        const road = this.createRiverRoad(startCluster, edgeTarget, random, noise, width, height, 'primary');
+        const road = this.createRiverRoad(startCluster, edgeTarget, random, noise, width, height, 'primary', padding);
         if (road.points.length > 5) {
           data.roads.push(road);
         }
@@ -84,7 +86,7 @@ export class FlowLayer extends BaseLayer {
         target = clusters[Math.floor(random.random() * clusters.length)];
       }
       
-      const road = this.createRiverRoad(branchPoint, target, random, noise, width, height, 'secondary');
+      const road = this.createRiverRoad(branchPoint, target, random, noise, width, height, 'secondary', padding);
       if (road.points.length > 5) {
         data.roads.push(road);
       }
@@ -114,47 +116,63 @@ export class FlowLayer extends BaseLayer {
     }
   }
 
-  createRiverRoad(start, end, random, noise, width, height, type) {
+  createRiverRoad(start, end, random, noise, width, height, type, padding) {
     const points = [];
-    let x = start.x;
-    let y = start.y;
-    let angle = Math.atan2(end.y - y, end.x - x);
-    const targetDist = Math.hypot(end.x - start.x, end.y - start.y);
-    const maxSteps = Math.min(800, Math.ceil(targetDist / this.stepSize) * 3);
-    const ns = this.noiseScale;
-    const curvatureStrength = 0.6 * this.roadCurviness; // radians max deviation per step
     
-    // Helper to keep within view
-    const inBounds = (px, py) => px >= 0 && px <= width && py >= 0 && py <= height;
+    // Helper to keep within view with padding from edges
+    const flowPadding = padding + 40; // Use system padding + extra 40px for flow lines
+    const inBounds = (px, py) => px >= flowPadding && px <= width - flowPadding && py >= flowPadding && py <= height - flowPadding;
     
-    points.push({ x, y });
-    for (let i = 0; i < maxSteps; i++) {
-      const toTarget = Math.atan2(end.y - y, end.x - x);
-      // Slowly align towards the target to ensure overall directionality
-      angle = angle * 0.92 + toTarget * 0.08;
+    // Create a series of connected circular arcs - NO straight segments possible
+    let currentX = start.x;
+    let currentY = start.y;
+    let currentAngle = random.random() * Math.PI * 2;
+    
+    points.push({ x: currentX, y: currentY });
+    
+    const maxArcs = 20; // Maximum number of arcs
+    
+    for (let arcIndex = 0; arcIndex < maxArcs; arcIndex++) {
+      // Calculate distance to target
+      const distToTarget = Math.hypot(end.x - currentX, end.y - currentY);
+      if (distToTarget < 30) break; // Close enough to target
       
-      // Low-frequency noise to create wide meanders (very calm)
-      const n = noise(x * ns, y * ns, 17.3) * 0.5 + noise((x + 1000) * ns, (y - 500) * ns, 91.8) * 0.5;
-      angle += n * curvatureStrength;
+      // Generate arc parameters - less loopy
+      const radius = 80 + random.random() * 120; // Arc radius between 80-200px (larger = less loopy)
+      const arcAngle = (Math.PI / 4) + random.random() * (Math.PI / 3); // 45-105 degrees (smaller = less loopy)
+      const turnDirection = random.random() < 0.5 ? 1 : -1; // Left or right turn
       
-      x += Math.cos(angle) * this.stepSize;
-      y += Math.sin(angle) * this.stepSize;
+      // Calculate arc center
+      const centerAngle = currentAngle + (turnDirection * Math.PI / 2);
+      const centerX = currentX + Math.cos(centerAngle) * radius;
+      const centerY = currentY + Math.sin(centerAngle) * radius;
       
-      if (!inBounds(x, y)) break;
+      // Generate points along the arc
+      const numArcPoints = Math.ceil(arcAngle * radius / 8); // Points every 8px along arc
+      const startAngle = currentAngle - (turnDirection * Math.PI / 2);
       
-      // Add point every other step for performance
-      if (i % 2 === 0) {
+      for (let i = 1; i <= numArcPoints; i++) {
+        const t = i / numArcPoints;
+        const angle = startAngle + (turnDirection * arcAngle * t);
+        
+        const x = centerX + Math.cos(angle) * radius;
+        const y = centerY + Math.sin(angle) * radius;
+        
+        if (!inBounds(x, y)) break;
+        
         points.push({ x, y });
+        currentX = x;
+        currentY = y;
+        currentAngle = angle + (turnDirection * Math.PI / 2);
       }
       
-      // Stop when close to target
-      if (Math.hypot(end.x - x, end.y - y) < 16) break;
+      // Add some noise to the angle for next arc
+      currentAngle += (random.random() - 0.5) * 0.5;
     }
     
-    // Ensure the path ends near the target
-    points.push({ x: end.x, y: end.y });
+    // Don't add straight line to target - let it end naturally at the last arc point
     
-    const smoothed = this.smoothPolyline(points, 2);
+    const smoothed = this.smoothPolyline(points, 1); // Less smoothing for more natural curves
     
     return {
       points: smoothed,

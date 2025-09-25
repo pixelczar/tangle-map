@@ -9,7 +9,7 @@ export class GridLayer extends BaseLayer {
   constructor() {
     super('grid', -20);
     this.gridSize = 64;
-    this.color = 'rgba(40, 60, 80, 0.2)';
+    this.color = 'rgba(80, 100, 120, 0.4)'; // Darker grid color with more opacity
     this.lineWidth = 0.3;
   }
 
@@ -44,14 +44,35 @@ export class GridLayer extends BaseLayer {
     for (let x = startX; x <= endX; x += this.gridSize) {
       // Skip border lines
       if (x > leftBound && x < rightBound) {
-        // 80% chance to show vertical line
-        if (random.random() < 0.8) {
-          data.vertical.push({
-            x,
-            y1: topBound,
-            y2: bottomBound,
-            visible: true
-          });
+        // 65% chance to show vertical line (more missing variation)
+        if (random.random() < 0.65) {
+          // Create gaps in the line for more incomplete feel
+          const lineType = random.random();
+          if (lineType < 0.3) {
+            // 30% chance for partial line (top half)
+            data.vertical.push({
+              x,
+              y1: topBound,
+              y2: topBound + (bottomBound - topBound) * 0.6,
+              visible: true
+            });
+          } else if (lineType < 0.6) {
+            // 30% chance for partial line (bottom half)
+            data.vertical.push({
+              x,
+              y1: topBound + (bottomBound - topBound) * 0.4,
+              y2: bottomBound,
+              visible: true
+            });
+          } else {
+            // 40% chance for full line
+            data.vertical.push({
+              x,
+              y1: topBound,
+              y2: bottomBound,
+              visible: true
+            });
+          }
         }
       }
     }
@@ -63,14 +84,35 @@ export class GridLayer extends BaseLayer {
     for (let y = startY; y <= endY; y += this.gridSize) {
       // Skip border lines
       if (y > topBound && y < bottomBound) {
-        // 80% chance to show horizontal line
-        if (random.random() < 0.8) {
-          data.horizontal.push({
-            y,
-            x1: leftBound,
-            x2: rightBound,
-            visible: true
-          });
+        // 65% chance to show horizontal line (more missing variation)
+        if (random.random() < 0.65) {
+          // Create gaps in the line for more incomplete feel
+          const lineType = random.random();
+          if (lineType < 0.3) {
+            // 30% chance for partial line (left half)
+            data.horizontal.push({
+              y,
+              x1: leftBound,
+              x2: leftBound + (rightBound - leftBound) * 0.6,
+              visible: true
+            });
+          } else if (lineType < 0.6) {
+            // 30% chance for partial line (right half)
+            data.horizontal.push({
+              y,
+              x1: leftBound + (rightBound - leftBound) * 0.4,
+              x2: rightBound,
+              visible: true
+            });
+          } else {
+            // 40% chance for full line
+            data.horizontal.push({
+              y,
+              x1: leftBound,
+              x2: rightBound,
+              visible: true
+            });
+          }
         }
       }
     }
@@ -136,16 +178,16 @@ export class GridLayer extends BaseLayer {
         
         const squareType = random.random();
         
-        if (squareType < 0.3) {
-          // Filled square with shading
+        if (squareType < 0.2) {
+          // Light filled square only (no dark squares)
           data.filledSquares.push({
             x: gridX,
             y: gridY,
             size: this.gridSize,
-            type: 'filled',
-            intensity: 0.3 + random.random() * 0.4
+            type: 'light-filled',
+            intensity: 0.1 + random.random() * 0.2 // Much lighter intensity
           });
-        } else if (squareType < 0.5) {
+        } else if (squareType < 0.4) {
           // Missing square (no grid lines in this area)
           data.filledSquares.push({
             x: gridX,
@@ -159,6 +201,11 @@ export class GridLayer extends BaseLayer {
   }
 
   generateIntersectionDots(data, { random }) {
+    // Safety check: ensure data has required properties
+    if (!data || !data.vertical || !data.horizontal) {
+      return [];
+    }
+    
     // Find all intersections between vertical and horizontal lines
     const intersections = new Set();
     
@@ -170,11 +217,23 @@ export class GridLayer extends BaseLayer {
 
     // Create clusters of larger dots
     const intersectionArray = Array.from(intersections);
+    
+    // Safety check: if no intersections, return empty array
+    if (intersectionArray.length === 0) {
+      return [];
+    }
+    
     const numClusters = 2 + Math.floor(random.random() * 4); // 2-5 clusters
     
     for (let i = 0; i < numClusters; i++) {
       // Pick a random intersection as cluster center
       const centerPoint = intersectionArray[Math.floor(random.random() * intersectionArray.length)];
+      
+      // Safety check: ensure centerPoint is valid
+      if (!centerPoint || typeof centerPoint !== 'string') {
+        continue;
+      }
+      
       const [centerX, centerY] = centerPoint.split(',').map(Number);
       
       // Find nearby intersections for the cluster
@@ -252,7 +311,7 @@ export class GridLayer extends BaseLayer {
   }
 
   getRandomTextureType(random) {
-    const textureTypes = ['stipple', 'crosshatch', 'diagonal', 'dots'];
+    const textureTypes = ['diagonal']; // Removed 'crosshatch' (tiny grid) and other patterns
     return textureTypes[Math.floor(random.random() * textureTypes.length)];
   }
 
@@ -301,12 +360,12 @@ export class GridLayer extends BaseLayer {
 
   renderFilledSquares(ctx, filledSquares, { transform3D, time, is3D, scale }) {
     filledSquares.forEach(square => {
-      if (square.type === 'filled') {
+      if (square.type === 'light-filled') {
         const pos = transform3D.transform(square.x, square.y, this.zIndex, time, is3D);
         const size = square.size * scale;
         
-        // Render filled square with shading
-        this.setFillStyle(ctx, `rgba(40, 60, 80, ${square.intensity * 0.3})`);
+        // Render filled square with darker color and more opacity
+        this.setFillStyle(ctx, `rgba(80, 100, 120, ${square.intensity * 0.3})`); // Darker with more opacity
         ctx.fillRect(pos.x, pos.y, size, size);
       }
       // Missing squares are handled by not rendering grid lines in those areas
@@ -358,7 +417,7 @@ export class GridLayer extends BaseLayer {
         this.renderTexturedRectangle(ctx, pos.x, pos.y, width, height, rect.textureType, rect.opacity);
       } else {
         // Normal masking rectangle
-        this.setFillStyle(ctx, `rgba(40, 60, 80, ${rect.opacity})`);
+        this.setFillStyle(ctx, `rgba(120, 140, 160, ${rect.opacity * 0.3})`); // Lighter color
         ctx.fillRect(pos.x, pos.y, width, height);
       }
     });
@@ -372,23 +431,17 @@ export class GridLayer extends BaseLayer {
     ctx.rect(x, y, width, height);
     ctx.clip();
     
-    // Set texture color
-    const textureColor = `rgba(40, 60, 80, ${opacity})`;
+    // Set texture color - lighter
+    const textureColor = `rgba(120, 140, 160, ${opacity * 0.3})`; // Lighter color
     this.setFillStyle(ctx, textureColor);
     this.setLineStyle(ctx, textureColor, 0.5);
     
     switch (textureType) {
-      case 'stipple':
-        this.renderStippleTexture(ctx, x, y, width, height);
-        break;
-      case 'crosshatch':
-        this.renderCrosshatchTexture(ctx, x, y, width, height);
-        break;
       case 'diagonal':
         this.renderDiagonalTexture(ctx, x, y, width, height);
         break;
-      case 'dots':
-        this.renderDotsTexture(ctx, x, y, width, height);
+      default:
+        // No additional texture
         break;
     }
     
@@ -410,7 +463,6 @@ export class GridLayer extends BaseLayer {
 
   renderCrosshatchTexture(ctx, x, y, width, height) {
     const spacing = 6;
-    const lineWidth = 0.8;
     
     // Horizontal lines
     for (let py = y; py < y + height; py += spacing) {
@@ -431,7 +483,6 @@ export class GridLayer extends BaseLayer {
 
   renderDiagonalTexture(ctx, x, y, width, height) {
     const spacing = 8;
-    const lineWidth = 0.6;
     
     // Diagonal lines
     for (let offset = -height; offset < width; offset += spacing) {

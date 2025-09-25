@@ -7,58 +7,119 @@ import { BaseLayer } from './BaseLayer.js';
 export class ParticleBurstLayer extends BaseLayer {
   constructor() {
     super('particles', 20);
-    this.color = 'rgba(30, 80, 120, 0.65)';
+    this.color = 'rgba(60, 60, 60, .3)'; // Gray color with maximum opacity
     this.countRange = { min: 1, max: 3 }; // even fewer bursts; tie to features
     this.particlesPer = { min: 200, max: 700 };
-    this.radiusRange = { min: 50, max: 180 };
+    this.radiusRange = { min: 80, max: 280 };
   }
 
   generateData(params) {
-    const { width, height, padding, random, staticLinesData, allData } = params;
+    const { random, allData } = params;
     const bursts = [];
-    const count = this.countRange.min + Math.floor(random.random() * (this.countRange.max - this.countRange.min + 1));
 
-    const seeds = [];
-    // prefer endpoints of static lines
-    (staticLinesData || []).forEach(l => {
-      // sample subset of endpoints to reduce density
-      if (random.random() > 0.5) seeds.push({ x: l.x1, y: l.y1 });
-      if (random.random() > 0.5) seeds.push({ x: l.x2, y: l.y2 });
-    });
-    // also use node centers for seeding
-    const nodesData = allData && allData.get ? allData.get('nodes') : null;
-    if (nodesData && nodesData.nodes) {
-      nodesData.nodes.slice(0, 4).forEach(n => seeds.push({ x: n.x, y: n.y }));
-    }
-    while (seeds.length < count) {
-      seeds.push({
-        x: padding + random.random() * (width - padding * 2),
-        y: padding + random.random() * (height - padding * 2)
-      });
-    }
 
-    for (let i = 0; i < count; i++) {
-      const origin = seeds[i % seeds.length];
-      const particles = [];
-      const n = this.particlesPer.min + Math.floor(random.random() * (this.particlesPer.max - this.particlesPer.min + 1));
-      const radius = this.radiusRange.min + random.random() * (this.radiusRange.max - this.radiusRange.min);
-      const aspect = 0.5 + random.random() * 1.2; // anisotropy
-      const angle = random.random() * Math.PI * 2;
-      for (let j = 0; j < n; j++) {
-        const r = (random.random() ** 0.7) * radius;
-        const a = angle + (random.random() - 0.5) * Math.PI * 0.6;
-        const x = origin.x + Math.cos(a) * r * aspect;
-        const y = origin.y + Math.sin(a) * r / aspect;
-        const size = 0.6 + random.random() * 1.2; // variable dot size
-        const alpha = 0.35 + (1 - r / radius) * 0.45; // fade outward
-        particles.push({ x, y, size, alpha });
+    // Get plot areas data
+    const plotAreasData = allData && allData.get ? allData.get('plotAreas') : null;
+    if (plotAreasData && plotAreasData.structures) {
+      // For each epicenter (plot area), select only 1-2 divisions to fill with particles
+      for (const plotArea of plotAreasData.structures) {
+        if (!plotArea.plotDivisions || plotArea.plotDivisions.length === 0) continue;
+        
+        // Select 1-2 random divisions from this plot area
+        const numDivisionsToFill = 1 + Math.floor(random.random() * 2); // 1 or 2 divisions
+        const shuffledDivisions = [...plotArea.plotDivisions].sort(() => random.random() - 0.5);
+        const selectedDivisions = shuffledDivisions.slice(0, numDivisionsToFill);
+        
+        for (const division of selectedDivisions) {
+          if (!division.points || division.points.length < 3) continue;
+          
+          // Calculate bounding box of the plot division
+          const bounds = this.calculateBounds(division.points);
+          const area = this.calculatePolygonArea(division.points);
+          
+          // Determine particle density based on area size - increased density
+          const baseDensity = 0.2; // increased particles per square unit
+          const particleCount = Math.floor(area * baseDensity * (0.5 + random.random() * 0.5));
+          
+          // Calculate center point of the plot division
+          const centerX = bounds.minX + (bounds.maxX - bounds.minX) / 2;
+          const centerY = bounds.minY + (bounds.maxY - bounds.minY) / 2;
+          
+          const particles = [];
+          for (let i = 0; i < particleCount; i++) {
+            // Generate particles that spray out from the center
+            const angle = random.random() * Math.PI * 2; // Random direction
+            const distance = random.random() * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * 0.4; // Spray distance
+            
+            let x = centerX + Math.cos(angle) * distance;
+            let y = centerY + Math.sin(angle) * distance;
+            
+            // Ensure the particle is within the polygon, if not, try a few more times
+            let attempts = 0;
+            while (!this.isPointInPolygon(x, y, division.points) && attempts < 10) {
+              const newAngle = random.random() * Math.PI * 2;
+              const newDistance = random.random() * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * 0.4;
+              x = centerX + Math.cos(newAngle) * newDistance;
+              y = centerY + Math.sin(newAngle) * newDistance;
+              attempts++;
+            }
+            
+            if (attempts < 10) { // Only add if we found a valid point
+              const size = 0.4 + random.random() * 0.8; // smaller particles
+              const alpha = 0.8 + random.random() * 0.2; // higher opacity
+              particles.push({ x, y, size, alpha });
+            }
+          }
+          
+          if (particles.length > 0) {
+            const burstAlpha = 0.8 + random.random() * 0.2; // higher opacity
+            bursts.push({
+              origin: { x: bounds.minX + (bounds.maxX - bounds.minX) / 2, y: bounds.minY + (bounds.maxY - bounds.minY) / 2 },
+              particles,
+              burstAlpha,
+              plotArea: true // Flag to indicate this is a plot area fill
+            });
+          }
+        }
       }
-      // per-burst tint strength
-      const burstAlpha = 0.7 - i * 0.05;
-      bursts.push({ origin, particles, burstAlpha });
     }
 
     return { bursts };
+  }
+
+  // Helper method to calculate bounding box of a polygon
+  calculateBounds(points) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const point of points) {
+      minX = Math.min(minX, point.x);
+      maxX = Math.max(maxX, point.x);
+      minY = Math.min(minY, point.y);
+      maxY = Math.max(maxY, point.y);
+    }
+    return { minX, maxX, minY, maxY };
+  }
+
+  // Helper method to calculate polygon area using shoelace formula
+  calculatePolygonArea(points) {
+    let area = 0;
+    for (let i = 0; i < points.length; i++) {
+      const j = (i + 1) % points.length;
+      area += points[i].x * points[j].y;
+      area -= points[j].x * points[i].y;
+    }
+    return Math.abs(area) / 2;
+  }
+
+  // Helper method to test if a point is inside a polygon using ray casting
+  isPointInPolygon(x, y, points) {
+    let inside = false;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+      if (((points[i].y > y) !== (points[j].y > y)) &&
+          (x < (points[j].x - points[i].x) * (y - points[i].y) / (points[j].y - points[i].y) + points[i].x)) {
+        inside = !inside;
+      }
+    }
+    return inside;
   }
 
   render(ctx, data, params) {
