@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fonts: Instrument Sans & Instrument Serif */
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@300;400;500;600;700&family=Instrument+Serif:ital,wght@0,400;0,700;1,400&display=swap');
+
+/* Default typography */
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+}
+
+.instrument-serif {
+  font-family: 'Instrument Serif', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
+}
+
+.instrument-sans {
+  font-family: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+}
+
+/* Use Tailwind's font-sans (Instrument Sans) as default */
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
