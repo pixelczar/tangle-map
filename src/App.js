@@ -27,23 +27,92 @@ const TangleMapApp = () => {
   const transform3DRef = useRef(null);
   const randomRef = useRef(new SeededRandom(42));
   
+  // Initialize state with localStorage values
+  const getInitialState = () => {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return {
+        isAnimating: false,
+        layers: {
+          grid: true,
+          panels: true,
+          arcs: true,
+          infrastructure: true,
+          particles: true,
+          nodes: true,
+          organic: true,
+          flow: true,
+          shading: true,
+          cores: true
+        },
+        showControls: true,
+        expandedLayers: {}
+      };
+    }
+
+    try {
+      const savedLayersRaw = localStorage.getItem(STORAGE_KEYS.layers);
+      const savedLayers = savedLayersRaw ? JSON.parse(savedLayersRaw) : {
+        grid: true,
+        panels: true,
+        arcs: true,
+        infrastructure: true,
+        particles: true,
+        nodes: true,
+        organic: true,
+        flow: true,
+        shading: true,
+        cores: true
+      };
+
+      const savedShowControlsRaw = localStorage.getItem(STORAGE_KEYS.showControls);
+      const savedShowControls = savedShowControlsRaw === 'true' || savedShowControlsRaw === 'false' 
+        ? savedShowControlsRaw === 'true' 
+        : true;
+
+      const savedExpandedRaw = localStorage.getItem(STORAGE_KEYS.expandedLayers);
+      const savedExpanded = savedExpandedRaw ? JSON.parse(savedExpandedRaw) : {};
+
+      const savedAnimatingRaw = localStorage.getItem(STORAGE_KEYS.isAnimating);
+      const savedAnimating = savedAnimatingRaw === 'true' || savedAnimatingRaw === 'false' 
+        ? savedAnimatingRaw === 'true' 
+        : false;
+
+      return {
+        isAnimating: savedAnimating,
+        layers: savedLayers,
+        showControls: savedShowControls,
+        expandedLayers: savedExpanded
+      };
+    } catch (e) {
+      console.warn('Failed to load initial state from localStorage:', e);
+      return {
+        isAnimating: false,
+        layers: {
+          grid: true,
+          panels: true,
+          arcs: true,
+          infrastructure: true,
+          particles: true,
+          nodes: true,
+          organic: true,
+          flow: true,
+          shading: true,
+          cores: true
+        },
+        showControls: true,
+        expandedLayers: {}
+      };
+    }
+  };
+
+  const initialState = getInitialState();
+
   // State management
-  const [isAnimating, setIsAnimating] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(initialState.isAnimating);
   const [seed, setSeed] = useState(42);
-  const [layers, setLayers] = useState({
-    grid: true,
-    panels: true,
-    arcs: true,
-    infrastructure: true,
-    particles: true,
-    nodes: true,
-    organic: true,
-    flow: true,
-    shading: true,
-    cores: true
-  });
-  const [showControls, setShowControls] = useState(true);
-  const [expandedLayers, setExpandedLayers] = useState({});
+  const [layers, setLayers] = useState(initialState.layers);
+  const [showControls, setShowControls] = useState(initialState.showControls);
+  const [expandedLayers, setExpandedLayers] = useState(initialState.expandedLayers);
   const [parameters, setParameters] = useState({
     clusterCount: 3, // Default cluster count
     padding: 120,
@@ -51,47 +120,7 @@ const TangleMapApp = () => {
     noiseScale: 0.02
   });
 
-  // Hydrate persisted UI state on mount
-  useEffect(() => {
-    try {
-      if (typeof window === 'undefined' || !window.localStorage) return;
-
-      const savedLayersRaw = localStorage.getItem(STORAGE_KEYS.layers);
-      if (savedLayersRaw) {
-        const savedLayers = JSON.parse(savedLayersRaw);
-        if (savedLayers && typeof savedLayers === 'object') {
-          setLayers(prev => {
-            const merged = { ...prev };
-            Object.keys(merged).forEach(k => {
-              if (typeof savedLayers[k] === 'boolean') merged[k] = savedLayers[k];
-            });
-            return merged;
-          });
-        }
-      }
-
-      const savedShowControlsRaw = localStorage.getItem(STORAGE_KEYS.showControls);
-      if (savedShowControlsRaw === 'true' || savedShowControlsRaw === 'false') {
-        setShowControls(savedShowControlsRaw === 'true');
-      }
-
-      const savedExpandedRaw = localStorage.getItem(STORAGE_KEYS.expandedLayers);
-      if (savedExpandedRaw) {
-        const savedExpanded = JSON.parse(savedExpandedRaw);
-        if (savedExpanded && typeof savedExpanded === 'object') {
-          setExpandedLayers(savedExpanded);
-        }
-      }
-
-      const savedAnimatingRaw = localStorage.getItem(STORAGE_KEYS.isAnimating);
-      if (savedAnimatingRaw === 'true' || savedAnimatingRaw === 'false') {
-        setIsAnimating(savedAnimatingRaw === 'true');
-      }
-    } catch (e) {
-      // Ignore corrupt storage
-      console.warn('Failed to hydrate UI state from localStorage:', e);
-    }
-  }, []);
+  // Note: State is now initialized with localStorage values directly, no hydration needed
 
   // Persist UI state on change
   useEffect(() => {
@@ -609,7 +638,7 @@ const TangleMapApp = () => {
                   
                   {/* Expandable Parameters */}
                   {expandedLayers[key] && (
-                    <div className="ml-6 mt-2 p-3 bg-gray-50 rounded space-y-3">
+                    <div className="mt-2 p-3 bg-gray-50 rounded space-y-3">
                       {renderLayerParameters(key)}
                     </div>
                   )}
