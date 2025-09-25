@@ -8,14 +8,14 @@ import { BaseLayer } from './BaseLayer.js';
 export class ArcLayer extends BaseLayer {
   constructor() {
     super('arcs', -8);
-    this.color = 'rgba(25, 70, 110, 0.7)';
-    this.lineWidth = 1.2;
-    this.arcCountRange = { min: 3, max: 6 }; // Increased frequency
-    this.radiusRange = { min: 60, max: 200 }; // much smaller radii
-    this.spanRange = { min: Math.PI * 0.12, max: Math.PI * 0.85 }; // varied partial arcs
-    this.solidRatio = 0.65; // majority drawn as solid strokes
-    this.circleProbability = 0.4; // additional full-circle outlines
-    this.concentricProbability = 0.5;
+    this.color = 'rgba(25, 70, 110, 0.35)'; // softer default
+    this.lineWidth = 0.9; // thinner
+    this.arcCountRange = { min: 2, max: 4 }; // fewer overall
+    this.radiusRange = { min: 80, max: 220 }; // slightly larger to feel airy
+    this.spanRange = { min: Math.PI * 0.15, max: Math.PI * 0.65 };
+    this.solidRatio = 0.5; // fewer solid
+    this.circleProbability = 0.25; // fewer full outlines
+    this.concentricProbability = 0.35; // fewer concentric
   }
 
   generateData(params) {
@@ -369,7 +369,7 @@ export class ArcLayer extends BaseLayer {
       this.renderArcGridFills(ctx, data.arcGridFills, { transform3D, time, is3D, scale });
     }
 
-    // Render arcs with color variation
+    // Render arcs with color variation (toned down)
     data.arcs.forEach((arc, i) => {
       const center = transform3D.transform(arc.cx, arc.cy, this.zIndex, time, is3D);
       const arcColor = arc.color || this.color;
@@ -379,7 +379,7 @@ export class ArcLayer extends BaseLayer {
         this.renderDonut(ctx, center, arc, scale, arcColor);
       } else {
         // Render traditional arc
-        const passes = 1 + (i % 2);
+        const passes = 1; // fewer passes to reduce boldness
         for (let p = 0; p < passes; p++) {
           const radius = arc.r * scale * (1 + p * 0.02);
           this.setLineStyle(ctx, arcColor, this.lineWidth * scale);
@@ -390,15 +390,17 @@ export class ArcLayer extends BaseLayer {
       }
     });
 
-    // Add optional full circle outlines for emphasis - use pre-calculated decision
+    // Optional full circle outlines (reduced)
     data.arcs.forEach((arc, i) => {
-      if (arc.shouldDrawCircle) return; // Use pre-calculated decision
+      if (arc.shouldDrawCircle) return; // decision comes from data
       const center = transform3D.transform(arc.cx, arc.cy, this.zIndex, time, is3D);
       const arcColor = arc.color || this.color;
-      this.setLineStyle(ctx, arcColor, this.lineWidth * 0.8 * scale);
-      ctx.beginPath();
-      ctx.arc(center.x, center.y, arc.r * scale, 0, Math.PI * 2);
-      ctx.stroke();
+      if (i % 3 === 0 && Math.random() < 0.3) { // fewer outlines
+        this.setLineStyle(ctx, arcColor, this.lineWidth * 0.7 * scale);
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, arc.r * scale, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     });
 
     // Draw intersection dots

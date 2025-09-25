@@ -10,6 +10,14 @@ import { ClusterSystem } from './systems/ClusterSystem.js';
 import { LayerManager } from './systems/LayerManager.js';
 import './index.css';
 
+// Persistence keys (module scope to avoid React Hook dependency warnings)
+const STORAGE_KEYS = {
+  layers: 'tm_layers',
+  showControls: 'tm_showControls',
+  expandedLayers: 'tm_expandedLayers',
+  isAnimating: 'tm_isAnimating'
+};
+
 const TangleMapApp = () => {
   // Application component for Tangle Map generative art tool
   const canvasRef = useRef(null);
@@ -42,6 +50,77 @@ const TangleMapApp = () => {
     animationSpeed: 1.0,
     noiseScale: 0.02
   });
+
+  // Hydrate persisted UI state on mount
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+
+      const savedLayersRaw = localStorage.getItem(STORAGE_KEYS.layers);
+      if (savedLayersRaw) {
+        const savedLayers = JSON.parse(savedLayersRaw);
+        if (savedLayers && typeof savedLayers === 'object') {
+          setLayers(prev => {
+            const merged = { ...prev };
+            Object.keys(merged).forEach(k => {
+              if (typeof savedLayers[k] === 'boolean') merged[k] = savedLayers[k];
+            });
+            return merged;
+          });
+        }
+      }
+
+      const savedShowControlsRaw = localStorage.getItem(STORAGE_KEYS.showControls);
+      if (savedShowControlsRaw === 'true' || savedShowControlsRaw === 'false') {
+        setShowControls(savedShowControlsRaw === 'true');
+      }
+
+      const savedExpandedRaw = localStorage.getItem(STORAGE_KEYS.expandedLayers);
+      if (savedExpandedRaw) {
+        const savedExpanded = JSON.parse(savedExpandedRaw);
+        if (savedExpanded && typeof savedExpanded === 'object') {
+          setExpandedLayers(savedExpanded);
+        }
+      }
+
+      const savedAnimatingRaw = localStorage.getItem(STORAGE_KEYS.isAnimating);
+      if (savedAnimatingRaw === 'true' || savedAnimatingRaw === 'false') {
+        setIsAnimating(savedAnimatingRaw === 'true');
+      }
+    } catch (e) {
+      // Ignore corrupt storage
+      console.warn('Failed to hydrate UI state from localStorage:', e);
+    }
+  }, []);
+
+  // Persist UI state on change
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      localStorage.setItem(STORAGE_KEYS.layers, JSON.stringify(layers));
+    } catch {}
+  }, [layers]);
+
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      localStorage.setItem(STORAGE_KEYS.showControls, showControls ? 'true' : 'false');
+    } catch {}
+  }, [showControls]);
+
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      localStorage.setItem(STORAGE_KEYS.expandedLayers, JSON.stringify(expandedLayers));
+    } catch {}
+  }, [expandedLayers]);
+
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      localStorage.setItem(STORAGE_KEYS.isAnimating, isAnimating ? 'true' : 'false');
+    } catch {}
+  }, [isAnimating]);
 
   // Main rendering function - defined first to avoid temporal dead zone
   const render = useCallback((time = 0, regenerateData = true) => {
@@ -93,20 +172,7 @@ const TangleMapApp = () => {
     
   }, [parameters.animationSpeed, parameters.padding, parameters.clusterCount]);
 
-  // Trigger canvas resize when controls visibility changes
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (canvasRef.current) {
-        // Force canvas to recalculate dimensions after layout change
-        const canvas = canvasRef.current;
-        canvas._lastWidth = null;
-        canvas._lastHeight = null;
-        render(0, false);
-      }
-    }, 600); // Wait for transition to complete (500ms + buffer)
-
-    return () => clearTimeout(timeoutId);
-  }, [showControls, render]);
+  // Removed resize on controls toggle to avoid redraw; canvas remains constant size
 
   // Initialize systems on mount
   useEffect(() => {
@@ -446,30 +512,32 @@ const TangleMapApp = () => {
   }, [triggerRender, updateLayerParameter]);
 
   return (
-    <div className="w-full h-screen bg-gray-50 relative overflow-hidden">
-      {/* Main Canvas Area */}
-      <div 
-        className={`absolute top-0 h-full transition-all duration-500 ease-in-out ${
-          showControls ? 'left-0 right-80' : 'left-0 right-0'
-        }`}
-      >
-        {/* Canvas Wrapper for Centering */}
-        <div className="w-full h-full flex items-center justify-center">
+    <div className="w-full h-screen relative overflow-hidden" style={{ background: 'rgba(250, 248, 245, 1)' }}>
+      {/* Responsive layout - canvas resizes when panel opens */}
+      <div className="absolute inset-0 flex">
+        {/* Canvas area - resizes to fit remaining space */}
+        <div 
+          className="h-full flex items-center justify-center transition-all duration-500 ease-in-out"
+          style={{ 
+            width: showControls ? 'calc(100% - 320px)' : '100%'
+          }}
+        >
           <canvas 
             ref={canvasRef}
             className="max-w-full max-h-full"
             style={{ background: 'rgba(250, 248, 245, 1)' }}
           />
-        </div>
-        
-        {/* Canvas Overlay Controls */}
-        <div className="absolute top-4 left-4">
-          <h1 className="text-4xl instrument-serif text-gray-800 drop-shadow-sm">Tangle Map</h1>
-        </div>
-        
-        {/* Show Controls Button - Top Right when hidden */}
-        {!showControls && (
-          <div className="absolute top-4 right-4">
+          
+          {/* Canvas Overlay Title */}
+          <div className="absolute top-4 left-4">
+            <h1 className="text-4xl instrument-serif text-gray-800 drop-shadow-sm">Tangle Map</h1>
+          </div>
+
+          {/* Show Controls Button - Far right top corner with opacity transition */}
+          <div 
+            className="absolute top-4 right-4 transition-opacity duration-300 ease-in-out"
+            style={{ opacity: showControls ? 0 : 1, pointerEvents: showControls ? 'none' : 'auto' }}
+          >
             <button
               onClick={() => setShowControls(true)}
               className="px-3 py-1.5 bg-slate-700 text-white rounded-lg shadow-md hover:bg-slate-800 transition-colors text-xs font-medium"
@@ -477,23 +545,25 @@ const TangleMapApp = () => {
               Show Controls
             </button>
           </div>
-        )}
-      </div>
-      
-      {/* Control Panel */}
-      <div 
-        className={`absolute top-0 right-0 w-80 h-full bg-white shadow-lg border-l max-h-screen overflow-y-auto transition-transform duration-500 ease-in-out ${
-          showControls ? 'translate-x-0' : 'translate-x-full'
-        }`}
-      >
-        <div className="p-6">
+        </div>
+
+        {/* Control Panel - always rendered, slides in/out smoothly */}
+        <div 
+          className="h-full bg-white max-h-screen overflow-y-auto transition-all duration-500 ease-in-out"
+          style={{ 
+            width: '320px',
+            transform: showControls ? 'translateX(0)' : 'translateX(100%)',
+            borderLeft: showControls ? '1px solid #e5e7eb' : 'none'
+          }}
+        >
+        <div className="px-6 py-4">
           {/* Hide Controls Button */}
           <div className="mb-6 flex justify-end">
             <button
               onClick={() => setShowControls(false)}
-              className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors border border-gray-200"
+              className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200"
             >
-              ✕ Hide
+              Hide Controls <span className="ml-2 text-sm">✕</span> 
             </button>
           </div>
 
@@ -501,7 +571,9 @@ const TangleMapApp = () => {
           <div className="mb-6">
             <h3 className="text-sm font-semibold mb-3 text-gray-700">Layers</h3>
             <div className="space-y-1">
-              {Object.entries(layers).map(([key, value]) => (
+              {Object.entries(layers)
+                .filter(([key]) => key !== 'panels')
+                .map(([key, value]) => (
                 <div key={key}>
                   {/* Layer Toggle Row */}
                   <div className="flex items-center gap-2">
@@ -562,6 +634,7 @@ const TangleMapApp = () => {
                   value={parameters.clusterCount}
                   onChange={(e) => updateParameter('clusterCount', parseInt(e.target.value))}
                   className="w-full"
+                  style={{ accentColor: '#334155' }}
                 />
               </div>
               <div>
@@ -577,6 +650,7 @@ const TangleMapApp = () => {
                   value={parameters.animationSpeed}
                   onChange={(e) => updateParameter('animationSpeed', parseFloat(e.target.value))}
                   className="w-full"
+                  style={{ accentColor: '#334155' }}
                 />
               </div>
             </div>
@@ -615,6 +689,7 @@ const TangleMapApp = () => {
               <p className="mb-2">Seed: {seed}</p>
               <p>Interactive generative diagram inspired by planning drawings and organic systems.</p>
             </div>
+          </div>
           </div>
         </div>
       </div>

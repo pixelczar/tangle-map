@@ -15,8 +15,8 @@ export class ShadingLayer extends BaseLayer {
       crosshatch: 'rgba(60, 100, 120, 0.5)',
       flow: 'rgba(80, 120, 140, 0.5)'
     };
-    this.boundaryLineWidth = 0.8; // Thinner, less robotic boundaries
-    this.patternLineWidth = 0.8; // Thicker pattern lines
+    this.boundaryLineWidth = 0.7; // slightly thinner
+    this.patternLineWidth = 0.7; // slightly thinner
     this.patterns = ['stipple', 'crosshatch', 'flow'];
   }
 
@@ -46,14 +46,14 @@ export class ShadingLayer extends BaseLayer {
       shadingCenters.push({ x: gridX, y: gridY });
     });
 
-        // Create shading areas at grid points - show more often
-        const shadingCount = Math.min(shadingCenters.length, 8 + Math.floor(random.random() * 6)); // 8-13 areas (more frequent)
+    // Create fewer, smaller shading areas
+    const shadingCount = Math.min(shadingCenters.length, 4 + Math.floor(random.random() * 4)); // 4-7 areas
     
     for (let i = 0; i < shadingCount; i++) {
       const center = shadingCenters[Math.floor(random.random() * shadingCenters.length)];
       const centerX = center.x;
       const centerY = center.y;
-          const size = (200 + random.random() * 150); // More consistent size range (200-350)
+      const size = (60 + random.random() * 80); // Smaller size range (60-140)
         
         const shadingArea = {
           centerX, centerY, size,
@@ -64,7 +64,7 @@ export class ShadingLayer extends BaseLayer {
           zOffset: i * 2, // Stagger Z positions
           inBounds: this.isInBounds(centerX - size, centerY - size, width, height, padding) &&
                    this.isInBounds(centerX + size, centerY + size, width, height, padding),
-          boundary: this.generateBoundary(centerX, centerY, size, random, noise)
+          boundary: this.generateRectOrganicBoundary(centerX, centerY, size, random)
         };
         
         // Generate pattern-specific data
@@ -76,31 +76,33 @@ export class ShadingLayer extends BaseLayer {
     return data;
   }
 
-  generateBoundary(centerX, centerY, size, random, noise) {
-    const numPoints = 10 + Math.floor(random.random() * 6); // 10-15 points for more organic shape
+  // New boundary: compact, rect-like organic shape aligned to axes
+  generateRectOrganicBoundary(centerX, centerY, size, random) {
+    const width = size * (0.8 + random.random() * 0.6);  // 0.8-1.4x size
+    const height = size * (0.6 + random.random() * 0.6); // 0.6-1.2x size
+    const segmentsPerEdge = 5; // few points per edge
+    const jitter = Math.min(width, height) * 0.08;
+    const corners = [
+      { x: centerX - width / 2, y: centerY - height / 2 },
+      { x: centerX + width / 2, y: centerY - height / 2 },
+      { x: centerX + width / 2, y: centerY + height / 2 },
+      { x: centerX - width / 2, y: centerY + height / 2 }
+    ];
     const boundary = [];
-    
-    for (let i = 0; i < numPoints; i++) {
-      const angle = (i / numPoints) * Math.PI * 2;
-      const baseRadius = size * 0.5; // Slightly smaller base radius
-      
-      // Add multiple layers of organic variation
-      const noise1 = noise(centerX * 0.008, centerY * 0.008, i * 0.1) * 30;
-      const noise2 = noise(centerX * 0.02, centerY * 0.02, i * 0.3) * 15;
-      const randomVariation = (random.random() - 0.5) * 20;
-      
-      const radius = baseRadius + noise1 + noise2 + randomVariation;
-      
-      // Add slight angle variation for more organic feel
-      const angleVariation = (random.random() - 0.5) * 0.1;
-      const finalAngle = angle + angleVariation;
-      
-      boundary.push({
-        x: centerX + Math.cos(finalAngle) * radius,
-        y: centerY + Math.sin(finalAngle) * radius
-      });
+    for (let c = 0; c < 4; c++) {
+      const a = corners[c];
+      const b = corners[(c + 1) % 4];
+      for (let i = 0; i <= segmentsPerEdge; i++) {
+        const t = i / segmentsPerEdge;
+        const x = a.x + (b.x - a.x) * t;
+        const y = a.y + (b.y - a.y) * t;
+        const nx = y - centerY; // perpendicular components for jitter
+        const ny = -(x - centerX);
+        const len = Math.hypot(nx, ny) || 1;
+        const j = (random.random() - 0.5) * jitter;
+        boundary.push({ x: x + (nx / len) * j, y: y + (ny / len) * j });
+      }
     }
-    
     return boundary;
   }
 
