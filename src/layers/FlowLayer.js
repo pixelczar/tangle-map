@@ -8,14 +8,14 @@ import { BaseLayer } from './BaseLayer.js';
 export class FlowLayer extends BaseLayer {
   constructor() {
     super('flow', 3);
-    this.color = 'rgba(80, 140, 222, 0.4)';
+    this.color = 'rgba(80, 140, 222, 0.2)';
     this.lineWidth = 1.0;
     
     // River meander parameters (low-frequency, gentle)
     this.noiseScale = 0.0025; // lower frequency = wider, calmer bends
     this.stepSize = 12; // smaller steps for smoother paths
-    this.primaryWidth = 4.2;
-    this.secondaryWidth = 1.2;
+    this.primaryWidth = 4.0;
+    this.secondaryWidth = 2.2;
     
     // Soft junction semantics (kept for compatibility, not rendered specially)
     this.intersectionRadius = 20;
@@ -26,7 +26,7 @@ export class FlowLayer extends BaseLayer {
     this.primaryRoadCount = { min: 1, max: 1 }; // Fewer primary rivers
     this.secondaryRoadCount = { min: 1, max: 3 }; // More secondary rivers
     this.roadCurviness = 0.35; // meander strength (0-1)
-    this.roadLength = { min: 180, max: 360 };
+    this.roadLength = { min: 180, max: 300 };
   }
 
   generateData(params) {
@@ -267,6 +267,21 @@ export class FlowLayer extends BaseLayer {
     return true;
   }
 
+  findJunctionPoints(roads) {
+    const junctionPoints = [];
+    
+    // Find points where secondary roads branch from primary roads
+    roads.forEach((road, roadIdx) => {
+      if (road.type === 'secondary') {
+        // The first point of a secondary road is where it branches from a primary road
+        const branchPoint = road.points[0];
+        junctionPoints.push(branchPoint);
+      }
+    });
+    
+    return junctionPoints;
+  }
+
   getInterestPointType(random) {
     const types = ['building', 'landmark', 'junction', 'settlement'];
     return types[Math.floor(random.random() * types.length)];
@@ -275,47 +290,49 @@ export class FlowLayer extends BaseLayer {
   render(ctx, data, params) {
     const { transform3D, time, is3D } = params;
     
-    // Draw roads with natural, smooth river appearance
+    // First pass: find all junction points where rivers branch
+    const junctionPoints = this.findJunctionPoints(data.roads);
+    
+    // Draw roads with natural, smooth river appearance and organic thickening at junctions
     data.roads.forEach((road, rIdx) => {
       // Set base width for river type
       const baseWidth = road.type === 'primary' ? this.primaryWidth * 1.2 : this.secondaryWidth;
       
-      // Draw the entire road as one smooth, natural curve
+      // Draw the road with variable width based on proximity to junctions
       if (road.points.length > 2) {
-        ctx.beginPath();
-        
-        // Start with the first point
-        const first = transform3D.transform(road.points[0].x, road.points[0].y, this.zIndex, time, is3D);
-        ctx.moveTo(first.x, first.y);
-        
-        // Use smooth quadratic curves for natural river flow
-        for (let i = 1; i < road.points.length - 1; i++) {
-          const current = transform3D.transform(road.points[i].x, road.points[i].y, this.zIndex, time, is3D);
-          const next = transform3D.transform(road.points[i + 1].x, road.points[i + 1].y, this.zIndex, time, is3D);
+        // Draw each segment with its own width based on junction proximity
+        for (let i = 0; i < road.points.length - 1; i++) {
+          const current = road.points[i];
+          const next = road.points[i + 1];
           
-          // Calculate smooth control point for natural curves
-          const controlX = current.x;
-          const controlY = current.y;
-          const endX = (current.x + next.x) / 2;
-          const endY = (current.y + next.y) / 2;
+          // Calculate distance to nearest junction point
+          let minDistance = Infinity;
+          junctionPoints.forEach(junction => {
+            const dist = Math.hypot(current.x - junction.x, current.y - junction.y);
+            minDistance = Math.min(minDistance, dist);
+          });
           
-          ctx.quadraticCurveTo(controlX, controlY, endX, endY);
+          // Calculate thickening factor based on distance to junction
+          const junctionRadius = 40; // Distance over which thickening occurs
+          const thickeningFactor = Math.max(1.0, 2.5 - (minDistance / junctionRadius));
+          const segmentWidth = baseWidth * thickeningFactor;
+          
+          // Transform points
+          const currentTransformed = transform3D.transform(current.x, current.y, this.zIndex, time, is3D);
+          const nextTransformed = transform3D.transform(next.x, next.y, this.zIndex, time, is3D);
+          
+          // Draw this segment
+          ctx.beginPath();
+          ctx.moveTo(currentTransformed.x, currentTransformed.y);
+          ctx.lineTo(nextTransformed.x, nextTransformed.y);
+          
+          // Set style and draw
+          ctx.strokeStyle = this.color;
+          ctx.lineWidth = segmentWidth;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.stroke();
         }
-        
-        // Finish the path to the last point
-        const last = transform3D.transform(
-          road.points[road.points.length - 1].x, 
-          road.points[road.points.length - 1].y, 
-          this.zIndex, time, is3D
-        );
-        ctx.lineTo(last.x, last.y);
-        
-        // Set style and draw
-        ctx.strokeStyle = this.color;
-        ctx.lineWidth = baseWidth;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.stroke();
       } else if (road.points.length === 2) {
         // Simple line for very short roads
         const p1 = transform3D.transform(road.points[0].x, road.points[0].y, this.zIndex, time, is3D);
