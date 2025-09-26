@@ -6,11 +6,11 @@ import { BaseLayer } from './BaseLayer.js';
 
 export class ParticleBurstLayer extends BaseLayer {
   constructor() {
-    super('particles', 20);
-    this.color = 'rgba(60, 60, 60, .3)'; // Gray color with maximum opacity
+    super('particles', 40);
+    this.color = 'rgba(60, 60, 60, .01)'; // Gray color with maximum opacity
     this.countRange = { min: 1, max: 3 }; // even fewer bursts; tie to features
-    this.particlesPer = { min: 200, max: 700 };
-    this.radiusRange = { min: 80, max: 280 };
+    this.particlesPer = { min: 80, max: 400 };
+    this.radiusRange = { min: 280, max: 1880 };
   }
 
   generateData(params) {
@@ -38,18 +38,26 @@ export class ParticleBurstLayer extends BaseLayer {
           const area = this.calculatePolygonArea(division.points);
           
           // Determine particle density based on area size - increased density
-          const baseDensity = 0.2; // increased particles per square unit
-          const particleCount = Math.floor(area * baseDensity * (0.5 + random.random() * 0.5));
+          const baseDensity = 0.4; // increased particles per square unit
+          const particleCount = Math.floor(area * baseDensity * (0.3 + random.random() * 0.5));
           
-          // Calculate center point of the plot division
-          const centerX = bounds.minX + (bounds.maxX - bounds.minX) / 2;
-          const centerY = bounds.minY + (bounds.maxY - bounds.minY) / 2;
+          // Calculate center point of the plot division, but offset towards the cluster epicenter
+          const divisionCenterX = bounds.minX + (bounds.maxX - bounds.minX) / 2;
+          const divisionCenterY = bounds.minY + (bounds.maxY - bounds.minY) / 2;
+          
+          // Find the cluster epicenter (center of the plot area)
+          const plotAreaCenterX = plotArea.x;
+          const plotAreaCenterY = plotArea.y;
+          
+          // Move the burst center closer to the cluster epicenter (70% towards epicenter)
+          const centerX = divisionCenterX + (plotAreaCenterX - divisionCenterX) * 0.7;
+          const centerY = divisionCenterY + (plotAreaCenterY - divisionCenterY) * 0.7;
           
           const particles = [];
           for (let i = 0; i < particleCount; i++) {
             // Generate particles that spray out from the center
             const angle = random.random() * Math.PI * 2; // Random direction
-            const distance = random.random() * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * 0.4; // Spray distance
+            const distance = random.random() * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * 0.6; // Increased spray distance
             
             let x = centerX + Math.cos(angle) * distance;
             let y = centerY + Math.sin(angle) * distance;
@@ -58,14 +66,14 @@ export class ParticleBurstLayer extends BaseLayer {
             let attempts = 0;
             while (!this.isPointInPolygon(x, y, division.points) && attempts < 10) {
               const newAngle = random.random() * Math.PI * 2;
-              const newDistance = random.random() * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * 0.4;
+              const newDistance = random.random() * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * 0.6;
               x = centerX + Math.cos(newAngle) * newDistance;
               y = centerY + Math.sin(newAngle) * newDistance;
               attempts++;
             }
             
             if (attempts < 10) { // Only add if we found a valid point
-              const size = 0.4 + random.random() * 0.8; // smaller particles
+              const size = 1.2 + random.random() * 1.8; // larger particles
               const alpha = 0.8 + random.random() * 0.2; // higher opacity
               particles.push({ x, y, size, alpha });
             }

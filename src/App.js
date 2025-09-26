@@ -40,7 +40,7 @@ const TangleMapApp = () => {
           nodes: true,
           organic: true,
           flow: true, // FORCE ENABLE FLOW LAYER
-          shading: true,
+          shading: false,
           cores: true
         },
         showControls: false,
@@ -61,7 +61,7 @@ const TangleMapApp = () => {
         nodes: true,
         organic: true,
         flow: true,
-        shading: true,
+        shading: false,
         cores: true
       };
       
@@ -743,7 +743,7 @@ const TangleMapApp = () => {
 
           {/* Footer */}
           <div className="absolute bottom-10 right-10 text-right">
-            <p className="font-serif text-gray-500">
+            <p className="font-serif text-gray-600 text-lg">
             Robotic by nature, organic by design  •  {new Date().getFullYear()}, PixelCzar ©
             </p>
           </div>
@@ -769,14 +769,14 @@ const TangleMapApp = () => {
               className={`px-2 py-1 text-xs rounded-lg transition-colors border border-gray-200 ${
                 isAnimating
                   ? 'text-gray-400 cursor-not-allowed' 
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                  : 'text-gray-700 hover:text-gray-700 hover:bg-gray-100'
               }`}
             >
               Redraw
             </button>
             <button
               onClick={() => setShowControls(true)}
-              className="px-2 py-1 text-xs rounded-lg transition-colors border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+              className="px-2 py-1 text-xs rounded-lg transition-colors border border-gray-200 text-gray-700 hover:text-gray-700 hover:bg-gray-100"
             >
               Controls
             </button>
