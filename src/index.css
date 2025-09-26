@@ -33,3 +33,14 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Custom text selection color - warm grayish to complement the composition */
+::selection {
+  background-color: #e3d9c7; /* Warm beige-gray */
+  color: #4a4a4a; /* Darker gray for good contrast */
+}
+
+::-moz-selection {
+  background-color: #d4c4a8; /* Warm beige-gray */
+  color: #4a4a4a; /* Darker gray for good contrast */
+}
