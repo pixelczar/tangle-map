@@ -117,6 +117,7 @@ const TangleMapApp = () => {
   const [layers, setLayers] = useState(initialState.layers);
   const [isAnimating, setIsAnimating] = useState(false);
   const [canvasOpacity, setCanvasOpacity] = useState(1);
+  const [editionIdOpacity, setEditionIdOpacity] = useState(1);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [showControls, setShowControls] = useState(initialState.showControls);
   const [expandedLayers, setExpandedLayers] = useState(initialState.expandedLayers);
@@ -313,10 +314,9 @@ const TangleMapApp = () => {
 
   // Generate unique edition identifier
   const generateEditionId = useCallback(() => {
-    const timestamp = Date.now();
+    const year = new Date().getFullYear().toString().slice(-2); // Last 2 digits
     const random = Math.floor(Math.random() * 1000000);
-    const year = new Date().getFullYear();
-    return `TM-${year}-${timestamp.toString(36).toUpperCase()}`;
+    return `00${year}-${random.toString(36).toUpperCase()}`;
   }, []);
 
   // Simple regenerate with fade transition
@@ -325,8 +325,9 @@ const TangleMapApp = () => {
     
     setIsAnimating(true);
     
-    // Fade out current canvas
+    // Fade out current canvas and edition ID
     setCanvasOpacity(0);
+    setEditionIdOpacity(0);
     
     // Wait for fade out to complete
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -334,6 +335,11 @@ const TangleMapApp = () => {
     // Generate new data
     setSeed(Math.floor(Math.random() * 10000));
     setEditionId(generateEditionId());
+    
+    // Randomize cluster count within bounds (1-6)
+    const newClusterCount = Math.floor(Math.random() * 6) + 1; // 1 to 6
+    setParameters(prev => ({ ...prev, clusterCount: newClusterCount }));
+    
     clusterSystemRef.current.clusters = []; // Clear existing clusters
     
     // Render new data
@@ -342,8 +348,9 @@ const TangleMapApp = () => {
     // Wait a moment for render to complete
     await new Promise(resolve => setTimeout(resolve, 100));
     
-    // Fade in new canvas
+    // Fade in new canvas and edition ID
     setCanvasOpacity(1);
+    setEditionIdOpacity(1);
     
     // Wait for fade in to complete
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -529,6 +536,7 @@ const TangleMapApp = () => {
             onMouseUp={triggerRender}
             onTouchEnd={triggerRender}
             className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+            style={{ accentColor: '#334155' }}
           />
         </div>
       );
@@ -750,9 +758,13 @@ const TangleMapApp = () => {
 
           {/* Edition ID - Swiss Style */}
           {editionId && (
-            <div className="absolute bottom-10 left-10">
-              <div className="w-16 h-px bg-gray-400 mb-2"></div>
-              <p className="text-xs font-sans text-gray-500 tracking-widest uppercase">
+            <div 
+              className="absolute bottom-10 left-10 transition-opacity duration-100 ease-in-out"
+              style={{ opacity: editionIdOpacity }}
+            >
+              <p className="text-lg italic font-serif text-gray-600 mb-0">fig</p>
+              <div className="w-4 h-px bg-gray-400 mb-2"></div>
+              <p className="text-xs font-sans text-gray-600 tracking-widest uppercase">
                 {editionId}
               </p>
             </div>
@@ -845,7 +857,7 @@ const TangleMapApp = () => {
                     <label className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => toggleLayer(key)}>
                       <div
                         className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
-                          value ? 'bg-slate-700' : 'bg-gray-300'
+                          value ? 'bg-gray-600' : 'bg-gray-300'
                         }`}
                       >
                         <span
