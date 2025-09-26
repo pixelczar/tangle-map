@@ -43,7 +43,7 @@ const TangleMapApp = () => {
           shading: true,
           cores: true
         },
-        showControls: true,
+        showControls: false,
         expandedLayers: {},
         layerOrder: [] // Will be set by LayerManager based on z-index
       };
@@ -72,10 +72,9 @@ const TangleMapApp = () => {
       // FORCE ENABLE PLOT AREAS LAYER - it must always be on!
       savedLayers.plotAreas = true;
 
-      const savedShowControlsRaw = localStorage.getItem(STORAGE_KEYS.showControls);
-      const savedShowControls = savedShowControlsRaw === 'true' || savedShowControlsRaw === 'false' 
-        ? savedShowControlsRaw === 'true' 
-        : true;
+      // Clear the showControls localStorage to force hidden state
+      localStorage.removeItem(STORAGE_KEYS.showControls);
+      const savedShowControls = false;
 
       const savedExpandedRaw = localStorage.getItem(STORAGE_KEYS.expandedLayers);
       const savedExpanded = savedExpandedRaw ? JSON.parse(savedExpandedRaw) : {};
@@ -114,12 +113,16 @@ const TangleMapApp = () => {
 
   // State management
   const [seed, setSeed] = useState(42);
+  const [editionId, setEditionId] = useState(null);
   const [layers, setLayers] = useState(initialState.layers);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [canvasOpacity, setCanvasOpacity] = useState(1);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [showControls, setShowControls] = useState(initialState.showControls);
   const [expandedLayers, setExpandedLayers] = useState(initialState.expandedLayers);
   const [parameters, setParameters] = useState({
     clusterCount: 3, // Default cluster count
-    padding: 120,
+    padding: 160, // Increased padding to prevent edge clipping
     noiseScale: 0.02
   });
   const [layerOrder, setLayerOrder] = useState(initialState.layerOrder);
@@ -281,6 +284,19 @@ const TangleMapApp = () => {
     render(0, true); // true = generate data
   }, [render]);
 
+  // Handle window resize - redraw canvas without regenerating data
+  useEffect(() => {
+    const handleResize = () => {
+      if (canvasRef.current) {
+        // Trigger a redraw without regenerating data
+        render(0, false); // false = don't regenerate data, just redraw
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [render]);
+
 
   // Layer toggle handler
   const toggleLayer = useCallback((layerName) => {
@@ -295,12 +311,63 @@ const TangleMapApp = () => {
     });
   }, []);
 
-  // Regenerate with new seed
-  const regenerate = useCallback(() => {
+  // Generate unique edition identifier
+  const generateEditionId = useCallback(() => {
+    const timestamp = Date.now();
+    const random = Math.floor(Math.random() * 1000000);
+    const year = new Date().getFullYear();
+    return `TM-${year}-${timestamp.toString(36).toUpperCase()}`;
+  }, []);
+
+  // Simple regenerate with fade transition
+  const regenerate = useCallback(async () => {
+    if (isAnimating) return; // Prevent multiple animations
+    
+    setIsAnimating(true);
+    
+    // Fade out current canvas
+    setCanvasOpacity(0);
+    
+    // Wait for fade out to complete
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // Generate new data
     setSeed(Math.floor(Math.random() * 10000));
+    setEditionId(generateEditionId());
     clusterSystemRef.current.clusters = []; // Clear existing clusters
+    
+    // Render new data
     render(0, true); // Regenerate data
-  }, [render]);
+    
+    // Wait a moment for render to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Fade in new canvas
+    setCanvasOpacity(1);
+    
+    // Wait for fade in to complete
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    setIsAnimating(false);
+  }, [render, generateEditionId, isAnimating]);
+
+  // Initialize edition ID on first load
+  useEffect(() => {
+    if (!editionId) {
+      setEditionId(generateEditionId());
+    }
+  }, [editionId, generateEditionId]);
+
+  // Trigger initial fade-in after first render
+  useEffect(() => {
+    if (isInitialLoad) {
+      const timer = setTimeout(() => {
+        setIsInitialLoad(false);
+      }, 100); // Small delay to ensure canvas is rendered
+      return () => clearTimeout(timer);
+    }
+  }, [isInitialLoad]);
+
 
 
   // Parameter update handlers
@@ -646,47 +713,70 @@ const TangleMapApp = () => {
 
   return (
     <div className="w-full h-screen relative overflow-hidden" style={{ background: 'rgba(250, 248, 245, 1)' }}>
-      {/* Responsive layout - canvas resizes when panel opens */}
-      <div className="absolute inset-0 flex">
-        {/* Canvas area - resizes to fit remaining space */}
-        <div 
-          className="h-full flex items-center justify-center transition-all duration-500 ease-in-out"
+      {/* Canvas area - directly centered */}
+      <div 
+        className="absolute inset-0 flex items-center justify-center transition-all duration-500 ease-in-out"
+        style={{ 
+          width: showControls ? 'calc(100% - 280px)' : '100%',
+          right: showControls ? '280px' : '0'
+        }}
+      >
+        <canvas 
+          ref={canvasRef}
+          className={`transition-opacity duration-300 ease-in-out ${
+            isInitialLoad ? 'opacity-0' : 'opacity-100'
+          }`}
           style={{ 
-            width: showControls ? 'calc(100% - 320px)' : '100%'
+            background: 'rgba(250, 248, 245, 1)',
+            display: 'block',
+            opacity: isInitialLoad ? undefined : canvasOpacity,
+            maxWidth: '90vw',
+            maxHeight: '90vh',
+            objectFit: 'contain'
           }}
-        >
-          <canvas 
-            ref={canvasRef}
-            className="max-w-full max-h-full"
-            style={{ background: 'rgba(250, 248, 245, 1)' }}
-          />
-          
-          {/* Canvas Overlay Title */}
-          <div className="absolute top-4 left-4">
-            <h1 className="text-4xl instrument-serif text-gray-800 drop-shadow-sm">Tangle Map</h1>
-          </div>
+        />
+        
+        {/* Canvas Overlay Title */}
+        <div className="absolute top-10 left-10">
+          <h1 className="text-4xl instrument-serif text-gray-800 drop-shadow-sm">Tangle Map</h1>
+        </div>
 
           {/* Footer */}
-          <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-center">
+          <div className="absolute bottom-10 right-10 text-right">
             <p className="font-serif text-gray-500">
             Robotic by nature, organic by design  •  {new Date().getFullYear()}, PixelCzar ©
             </p>
           </div>
 
+          {/* Edition ID - Swiss Style */}
+          {editionId && (
+            <div className="absolute bottom-10 left-10">
+              <div className="w-16 h-px bg-gray-400 mb-2"></div>
+              <p className="text-xs font-sans text-gray-500 tracking-widest uppercase">
+                {editionId}
+              </p>
+            </div>
+          )}
+
           {/* Top Right Buttons - Far right top corner with opacity transition */}
           <div 
-            className="absolute top-4 right-4 transition-opacity duration-300 ease-in-out flex gap-2"
+            className="absolute top-10 right-10 transition-opacity duration-300 ease-in-out flex gap-2"
             style={{ opacity: showControls ? 0 : 1, pointerEvents: showControls ? 'none' : 'auto' }}
           >
             <button
               onClick={regenerate}
-              className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200"
+              disabled={isAnimating}
+              className={`px-2 py-1 text-xs rounded-lg transition-colors border border-gray-200 ${
+                isAnimating
+                  ? 'text-gray-400 cursor-not-allowed' 
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+              }`}
             >
               Redraw
             </button>
             <button
               onClick={() => setShowControls(true)}
-              className="px-3 py-1.5 bg-slate-700 text-white rounded-lg shadow-md hover:bg-slate-800 transition-colors text-xs font-medium"
+              className="px-2 py-1 text-xs rounded-lg transition-colors border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100"
             >
               Controls
             </button>
@@ -695,9 +785,9 @@ const TangleMapApp = () => {
 
         {/* Control Panel - always rendered, slides in/out smoothly */}
         <div 
-          className="h-full bg-white max-h-screen overflow-y-auto transition-all duration-500 ease-in-out"
+          className="h-full bg-white max-h-screen overflow-y-auto transition-all duration-500 ease-in-out absolute right-0 top-0"
           style={{ 
-            width: '320px',
+            width: '280px',
             transform: showControls ? 'translateX(0)' : 'translateX(100%)',
             borderLeft: showControls ? '1px solid #e5e7eb' : 'none'
           }}
@@ -837,7 +927,6 @@ const TangleMapApp = () => {
               <p className="mb-2">Seed: {seed}</p>
               <p>Interactive generative diagram inspired by planning drawings and organic systems.</p>
             </div>
-          </div>
           </div>
         </div>
       </div>
