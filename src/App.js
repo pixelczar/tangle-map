@@ -4,6 +4,24 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import {
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { SeededRandom } from './utils/random.js';
 import { Transform3D } from './utils/transform3D.js';
 import { ClusterSystem } from './systems/ClusterSystem.js';
@@ -16,6 +34,57 @@ const STORAGE_KEYS = {
   showControls: 'tm_showControls',
   expandedLayers: 'tm_expandedLayers',
   layerOrder: 'tm_layerOrder'
+};
+
+// Sortable Layer Item Component
+const SortableLayerItem = ({ id, children, ...props }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging: isSortableDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isSortableDragging ? 0.3 : 1,
+    zIndex: isSortableDragging ? 1000 : 'auto',
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...props}
+      className={`${isSortableDragging ? 'bg-blue-50 border-2 border-blue-200 rounded-lg shadow-lg' : ''}`}
+    >
+      {children({ listeners, attributes })}
+    </div>
+  );
+};
+
+// Drag Handle Component
+const DragHandle = ({ listeners, attributes }) => {
+  return (
+    <div 
+      className="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-100 rounded transition-colors"
+      {...listeners}
+      {...attributes}
+    >
+      <svg className="w-3 h-3 text-gray-500" fill="currentColor" viewBox="0 0 12 12">
+        <rect x="2" y="2" width="1" height="1" rx="0.5"/>
+        <rect x="2" y="5" width="1" height="1" rx="0.5"/>
+        <rect x="2" y="8" width="1" height="1" rx="0.5"/>
+        <rect x="5" y="2" width="1" height="1" rx="0.5"/>
+        <rect x="5" y="5" width="1" height="1" rx="0.5"/>
+        <rect x="5" y="8" width="1" height="1" rx="0.5"/>
+      </svg>
+    </div>
+  );
 };
 
 const TangleMapApp = () => {
@@ -117,7 +186,7 @@ const TangleMapApp = () => {
   const [layers, setLayers] = useState(initialState.layers);
   const [isAnimating, setIsAnimating] = useState(false);
   const [canvasOpacity, setCanvasOpacity] = useState(1);
-  const [editionIdOpacity, setEditionIdOpacity] = useState(1);
+  const [editionIdOpacity, setEditionIdOpacity] = useState(0);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [showControls, setShowControls] = useState(initialState.showControls);
   const [expandedLayers, setExpandedLayers] = useState(initialState.expandedLayers);
@@ -127,8 +196,18 @@ const TangleMapApp = () => {
     noiseScale: 0.02
   });
   const [layerOrder, setLayerOrder] = useState(initialState.layerOrder);
-  const [draggedLayer, setDraggedLayer] = useState(null);
-  const [dragOverLayer, setDragOverLayer] = useState(null);
+  const [cornerOpacity, setCornerOpacity] = useState(0);
+  const [isShowingCorners, setIsShowingCorners] = useState(true);
+  const [is3D, setIs3D] = useState(false);
+  const isDraggingCameraRef = useRef(false);
+  const lastMousePosRef = useRef({ x: 0, y: 0 });
+  // @dnd-kit sensors for better drag and drop
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Note: State is now initialized with localStorage values directly, no hydration needed
 
@@ -205,14 +284,14 @@ const TangleMapApp = () => {
       random: randomRef.current,
       noise: randomRef.current.noise.bind(randomRef.current),
       transform3D: transform3DRef.current,
-      is3D: false, // Always 2D mode
+      is3D: is3D,
       padding: parameters.padding
     };
 
     // Render all layers
     layerManagerRef.current.renderAll(ctx, renderParams, regenerateData);
     
-  }, [parameters.padding, parameters.clusterCount]);
+  }, [parameters.padding, parameters.clusterCount, is3D]);
 
   // Removed resize on controls toggle to avoid redraw; canvas remains constant size
 
@@ -266,6 +345,78 @@ const TangleMapApp = () => {
     }
   }, [layers, render]);
 
+  // Trigger re-render when 3D mode changes
+  useEffect(() => {
+    if (canvasRef.current) {
+      render(0, false); // Don't regenerate data, just re-render with new 3D state
+    }
+  }, [is3D, render]);
+
+  // Handle camera rotation with Cmd/Ctrl + drag
+  useEffect(() => {
+    if (!is3D) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleMouseDown = (e) => {
+      // Check for Cmd (Mac) or Ctrl (Windows/Linux)
+      if (e.metaKey || e.ctrlKey) {
+        e.preventDefault();
+        isDraggingCameraRef.current = true;
+        lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+        canvas.style.cursor = 'grabbing';
+      }
+    };
+
+    const handleMouseMove = (e) => {
+      if (!isDraggingCameraRef.current) return;
+
+      const deltaX = (e.clientY - lastMousePosRef.current.y) * 0.01; // Vertical movement rotates X
+      const deltaY = (e.clientX - lastMousePosRef.current.x) * 0.01; // Horizontal movement rotates Y
+
+      if (transform3DRef.current) {
+        transform3DRef.current.updateRotation(deltaX, deltaY);
+        // Trigger render directly
+        if (canvasRef.current) {
+          render(0, false);
+        }
+      }
+
+      lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handleMouseUp = () => {
+      if (isDraggingCameraRef.current) {
+        isDraggingCameraRef.current = false;
+        if (canvas) {
+          canvas.style.cursor = is3D ? 'grab' : '';
+        }
+      }
+    };
+
+    const handleMouseLeave = () => {
+      if (isDraggingCameraRef.current) {
+        isDraggingCameraRef.current = false;
+        if (canvas) {
+          canvas.style.cursor = is3D ? 'grab' : '';
+        }
+      }
+    };
+
+    canvas.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('mouseleave', handleMouseLeave);
+
+    return () => {
+      canvas.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      canvas.removeEventListener('mouseleave', handleMouseLeave);
+    };
+  }, [is3D, render]);
+
   // Handle parameter changes that require re-rendering
   useEffect(() => {
     if (clusterSystemRef.current) {
@@ -296,6 +447,57 @@ const TangleMapApp = () => {
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, [render]);
+
+  // Track mouse activity to hide/show corner elements
+  useEffect(() => {
+    let inactivityTimeout;
+    const INACTIVITY_DELAY = 2000; // 2 seconds of inactivity
+
+    const handleMouseMove = () => {
+      // Show corners immediately on mouse movement
+      setIsShowingCorners(true);
+      setCornerOpacity(1);
+      
+      // Clear existing timeout
+      if (inactivityTimeout) {
+        clearTimeout(inactivityTimeout);
+      }
+      
+      // Set new timeout to hide corners after inactivity
+      inactivityTimeout = setTimeout(() => {
+        setIsShowingCorners(false);
+        setCornerOpacity(0);
+      }, INACTIVITY_DELAY);
+    };
+
+    // Initial timeout
+    inactivityTimeout = setTimeout(() => {
+      setIsShowingCorners(false);
+      setCornerOpacity(0);
+    }, INACTIVITY_DELAY);
+
+    window.addEventListener('mousemove', handleMouseMove);
+    
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      if (inactivityTimeout) {
+        clearTimeout(inactivityTimeout);
+      }
+    };
+  }, []);
+
+  // Handle page refresh - trigger redraw before page unloads
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (canvasRef.current) {
+        // Trigger a redraw before page refreshes
+        render(0, false); // false = don't regenerate data, just redraw
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [render]);
 
 
@@ -348,12 +550,20 @@ const TangleMapApp = () => {
     // Wait a moment for render to complete
     await new Promise(resolve => setTimeout(resolve, 100));
     
-    // Fade in new canvas and edition ID
+    // Fade in new canvas
     setCanvasOpacity(1);
-    setEditionIdOpacity(1);
     
     // Wait for fade in to complete
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Wait additional 500ms before fading in the fig text
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Fade in edition ID
+    setEditionIdOpacity(1);
+    
+    // Wait for edition ID fade in to complete
+    await new Promise(resolve => setTimeout(resolve, 400));
     
     setIsAnimating(false);
   }, [render, generateEditionId, isAnimating]);
@@ -375,6 +585,15 @@ const TangleMapApp = () => {
     }
   }, [isInitialLoad]);
 
+  // Fade in corner controls on initial page load
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setCornerOpacity(1);
+      setEditionIdOpacity(1);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
 
 
   // Parameter update handlers
@@ -393,57 +612,19 @@ const TangleMapApp = () => {
     }));
   }, []);
 
-  // Drag and drop functions
-  const handleDragStart = useCallback((e, layerName) => {
-    setDraggedLayer(layerName);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/html', e.target.outerHTML);
-    e.target.style.opacity = '0.5';
-  }, []);
+  // @dnd-kit drag and drop handler
+  const handleDragEnd = useCallback((event) => {
+    const { active, over } = event;
 
-  const handleDragEnd = useCallback((e) => {
-    e.target.style.opacity = '1';
-    setDraggedLayer(null);
-    setDragOverLayer(null);
-  }, []);
+    if (active.id !== over?.id) {
+      setLayerOrder((items) => {
+        const oldIndex = items.indexOf(active.id);
+        const newIndex = items.indexOf(over.id);
 
-  const handleDragOver = useCallback((e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  }, []);
-
-  const handleDragEnter = useCallback((e, layerName) => {
-    e.preventDefault();
-    setDragOverLayer(layerName);
-  }, []);
-
-  const handleDragLeave = useCallback((e) => {
-    // Only clear if we're leaving the entire layer item, not just moving between child elements
-    if (!e.currentTarget.contains(e.relatedTarget)) {
-      setDragOverLayer(null);
+        return arrayMove(items, oldIndex, newIndex);
+      });
     }
   }, []);
-
-  const handleDrop = useCallback((e, targetLayerName) => {
-    e.preventDefault();
-    
-    if (draggedLayer && draggedLayer !== targetLayerName) {
-      const newOrder = [...layerOrder];
-      const draggedIndex = newOrder.indexOf(draggedLayer);
-      const targetIndex = newOrder.indexOf(targetLayerName);
-      
-      // Remove dragged layer from its current position
-      newOrder.splice(draggedIndex, 1);
-      
-      // Insert at new position
-      const newTargetIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex;
-      newOrder.splice(newTargetIndex, 0, draggedLayer);
-      
-      setLayerOrder(newOrder);
-    }
-    
-    setDragOverLayer(null);
-  }, [draggedLayer, layerOrder]);
 
   // Debounced render for parameter updates
   const debouncedRenderRef = useRef(null);
@@ -731,7 +912,7 @@ const TangleMapApp = () => {
       >
         <canvas 
           ref={canvasRef}
-          className={`transition-opacity duration-300 ease-in-out ${
+          className={`transition-opacity ease-in-out ${
             isInitialLoad ? 'opacity-0' : 'opacity-100'
           }`}
           style={{ 
@@ -740,18 +921,32 @@ const TangleMapApp = () => {
             opacity: isInitialLoad ? undefined : canvasOpacity,
             maxWidth: '90vw',
             maxHeight: '90vh',
-            objectFit: 'contain'
+            objectFit: 'contain',
+            cursor: is3D ? 'grab' : 'default',
+            transitionDuration: '2000ms'
           }}
         />
         
         {/* Canvas Overlay Title */}
-        <div className="absolute top-10 left-10">
+        <div 
+          className="absolute top-10 left-10 transition-opacity ease-in-out"
+          style={{ 
+            opacity: cornerOpacity,
+            transitionDuration: isShowingCorners ? '2000ms' : '500ms'
+          }}
+        >
           <h1 className="text-4xl instrument-serif text-gray-800 drop-shadow-sm">Tangle Map</h1>
         </div>
 
           {/* Footer */}
-          <div className="absolute bottom-10 right-10 text-right">
-            <p className="font-serif text-gray-600 text-lg">
+          <div 
+            className="absolute bottom-10 right-10 text-right transition-opacity ease-in-out"
+            style={{ 
+              opacity: cornerOpacity,
+              transitionDuration: isShowingCorners ? '2000ms' : '500ms'
+            }}
+          >
+            <p className="font-serif text-gray-600 text-xl">
             Robotic by nature, organic by design  •  {new Date().getFullYear()}, PixelCzar ©
             </p>
           </div>
@@ -759,12 +954,15 @@ const TangleMapApp = () => {
           {/* Edition ID - Swiss Style */}
           {editionId && (
             <div 
-              className="absolute bottom-10 left-10 transition-opacity duration-100 ease-in-out"
-              style={{ opacity: editionIdOpacity }}
+              className="absolute bottom-10 left-10 transition-opacity ease-in-out"
+              style={{ 
+                opacity: editionIdOpacity,
+                transitionDuration: '2000ms'
+              }}
             >
-              <p className="text-lg italic font-serif text-gray-600 mb-0">fig</p>
-              <div className="w-4 h-px bg-gray-400 mb-2"></div>
-              <p className="text-xs font-sans text-gray-600 tracking-widest uppercase">
+              <p className="text-3xl italic font-serif text-gray-800 mb-1">fig</p>
+              <div className="w-6 h-px bg-gray-400 mb-2"></div>
+              <p className="text-lg font-sans text-gray-600 tracking-widest uppercase">
                 {editionId}
               </p>
             </div>
@@ -772,23 +970,27 @@ const TangleMapApp = () => {
 
           {/* Top Right Buttons - Far right top corner with opacity transition */}
           <div 
-            className="absolute top-10 right-10 transition-opacity duration-300 ease-in-out flex gap-2"
-            style={{ opacity: showControls ? 0 : 1, pointerEvents: showControls ? 'none' : 'auto' }}
+            className="absolute top-10 right-10 transition-opacity ease-in-out flex gap-2"
+            style={{ 
+              opacity: showControls ? 0 : cornerOpacity, 
+              pointerEvents: showControls ? 'none' : 'auto',
+              transitionDuration: isShowingCorners ? '2000ms' : '500ms'
+            }}
           >
             <button
               onClick={regenerate}
               disabled={isAnimating}
-              className={`px-2 py-1 text-xs rounded-lg transition-colors border border-gray-200 ${
+              className={`px-2 py-1 text-xs rounded-lg transition-colors duration-300 ease-in-out border border-gray-200 ${
                 isAnimating
                   ? 'text-gray-400 cursor-not-allowed' 
-                  : 'text-gray-700 hover:text-gray-700 hover:bg-gray-100'
+                  : 'text-gray-600 hover:text-gray-800 hover:border-gray-300'
               }`}
             >
               Redraw
             </button>
             <button
               onClick={() => setShowControls(true)}
-              className="px-2 py-1 text-xs rounded-lg transition-colors border border-gray-200 text-gray-700 hover:text-gray-700 hover:bg-gray-100"
+              className="px-2 py-1 text-xs rounded-lg transition-colors duration-300 ease-in-out border border-gray-200 text-gray-600 hover:text-gray-800 hover:border-gray-300"
             >
               Controls
             </button>
@@ -818,43 +1020,34 @@ const TangleMapApp = () => {
           {/* Layers */}
           <div className="mb-6">
             <h3 className="text-sm font-semibold mb-3 text-gray-700">Layers</h3>
-            <div className="space-y-1">
-              {layerOrder
-                .filter(key => key !== 'panels' && layers.hasOwnProperty(key))
-                .map((key) => {
-                  const value = layers[key];
-                  const isDragging = draggedLayer === key;
-                  const isDragOver = dragOverLayer === key;
-                  
-                  return (
-                <div 
-                  key={key}
-                  className={`transition-all duration-200 ease-in-out ${
-                    isDragging ? 'opacity-50 scale-95' : ''
-                  } ${
-                    isDragOver ? 'transform translate-y-1' : ''
-                  }`}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, key)}
-                  onDragEnd={handleDragEnd}
-                  onDragOver={handleDragOver}
-                  onDragEnter={(e) => handleDragEnter(e, key)}
-                  onDragLeave={handleDragLeave}
-                  onDrop={(e) => handleDrop(e, key)}
-                >
-                  {/* Layer Toggle Row */}
-                  <div className="flex items-center">
-                    {/* Drag Handle */}
-                    <div 
-                      className="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-100 rounded transition-colors"
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M7 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>
-                      </svg>
-                    </div>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={layerOrder.filter(key => key !== 'panels' && layers.hasOwnProperty(key))}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-1">
+                  {layerOrder
+                    .filter(key => key !== 'panels' && layers.hasOwnProperty(key))
+                    .map((key) => {
+                      const value = layers[key];
+                      
+                      return (
+                    <SortableLayerItem key={key} id={key}>
+                      {({ listeners, attributes }) => (
+                        <>
+                          {/* Layer Toggle Row */}
+                          <div className="flex items-center">
+                            {/* Drag Handle - subtle gripper */}
+                            <DragHandle listeners={listeners} attributes={attributes} />
                     
-                    <label className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => toggleLayer(key)}>
+                    <label className="flex items-center gap-3 cursor-pointer flex-1" onClick={(e) => {
+                      e.stopPropagation();
+                      toggleLayer(key);
+                    }}>
                       <div
                         className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
                           value ? 'bg-gray-600' : 'bg-gray-300'
@@ -872,7 +1065,10 @@ const TangleMapApp = () => {
                     </label>
                     {/* Expand/Collapse Chevron */}
                     <button
-                      onClick={() => toggleLayerExpansion(key)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleLayerExpansion(key);
+                      }}
                       className="p-1 hover:bg-gray-100 rounded transition-colors"
                     >
                       <svg 
@@ -886,16 +1082,20 @@ const TangleMapApp = () => {
                     </button>
                   </div>
                   
-                  {/* Expandable Parameters */}
-                  {expandedLayers[key] && (
-                    <div className="mt-2 p-3 bg-gray-50 rounded space-y-3">
-                      {renderLayerParameters(key)}
-                    </div>
-                  )}
-                </div>
+                          {/* Expandable Parameters */}
+                          {expandedLayers[key] && (
+                            <div className="mt-2 p-3 bg-gray-50 rounded space-y-3">
+                              {renderLayerParameters(key)}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </SortableLayerItem>
                 );
                 })}
-            </div>
+                </div>
+              </SortableContext>
+            </DndContext>
           </div>
 
           {/* Parameters */}
@@ -917,6 +1117,24 @@ const TangleMapApp = () => {
                   style={{ accentColor: '#334155' }}
                 />
               </div>
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-gray-600">3D Mode</label>
+                <button
+                  onClick={() => {
+                    setIs3D(!is3D);
+                    setTimeout(() => triggerRender(), 0);
+                  }}
+                  className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+                    is3D ? 'bg-gray-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
+                      is3D ? 'translate-x-3.5' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -928,16 +1146,16 @@ const TangleMapApp = () => {
               onClick={regenerate}
               className="w-full py-1.5 px-3 bg-slate-700 text-white rounded-lg shadow-md hover:bg-slate-800 transition-colors text-xs font-medium"
             >
-              Regenerate
+              Redraw
             </button>
           </div>
 
 
           {/* Info */}
-          <div className="mt-6 pt-6 border-t">
+          <div className="mt-8 pt-6 border-t">
             <div className="text-xs text-gray-500">
               <p className="mb-2">Seed: {seed}</p>
-              <p>Interactive generative diagram inspired by planning drawings and organic systems.</p>
+              <p className="mt-12">Tanglemap is generative art project inspirated by planning diagrams, the landscape, forms of humanity & geography, and the visualization of abstract ideas.</p>
             </div>
           </div>
         </div>
