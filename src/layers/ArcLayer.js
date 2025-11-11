@@ -363,7 +363,7 @@ export class ArcLayer extends BaseLayer {
   }
 
   render(ctx, data, params) {
-    const { transform3D, time, is3D, random } = params;
+    const { transform3D, time, is3D } = params;
     const scale = transform3D.getScale(this.zIndex, time, is3D);
 
     // Render arc-grid fills first (background)
