@@ -298,6 +298,11 @@ export class ShadingLayer extends BaseLayer {
       case 'flow':
         this.renderFlowLines(ctx, area, patternColor, { transform3D, time, is3D, currentZ });
         break;
+      
+      default:
+        // Default to stipple pattern
+        this.renderStipple(ctx, area, patternColor, { transform3D, time, is3D, currentZ });
+        break;
     }
   }
 
