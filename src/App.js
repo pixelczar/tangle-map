@@ -310,15 +310,17 @@ const TangleMapApp = () => {
       setLayerOrder(managerOrder);
     }
     
+    // Capture ref values at effect start for cleanup
+    const debouncedTimeout = debouncedRenderRef.current;
+    const renderTimeout = renderTimeoutRef.current;
+    
     return () => {
-      const currentTimeout = debouncedRenderRef.current;
-      const currentRenderTimeout = renderTimeoutRef.current;
       // Clean up debounced render timeout
-      if (currentTimeout) {
-        clearTimeout(currentTimeout);
+      if (debouncedTimeout) {
+        clearTimeout(debouncedTimeout);
       }
-      if (currentRenderTimeout) {
-        clearTimeout(currentRenderTimeout);
+      if (renderTimeout) {
+        clearTimeout(renderTimeout);
       }
     };
   }, [parameters.padding, layerOrder.length]);
