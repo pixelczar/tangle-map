@@ -19,7 +19,7 @@ export class ArcLayer extends BaseLayer {
   }
 
   generateData(params) {
-    const { clusters, random, width, height, padding, gridData, gridSize } = params;
+    const { clusters, random, gridData, gridSize } = params;
     const data = { arcs: [], arcGridFills: [] };
 
     // Create purposeful arc placements based on clusters and infrastructure
