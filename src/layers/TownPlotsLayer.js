@@ -251,7 +251,7 @@ export class TownPlotsLayer extends BaseLayer {
     structures.forEach((plot, i) => {
       if (!plot.inBounds) return;
       
-      const { x, y, plotDivisions, clusterIndex } = plot;
+      const { plotDivisions } = plot;
       
       const edgeWidth = (this.baseLineWidth + Math.sin(time * 0.01) * 0.1) * baseScale;
       

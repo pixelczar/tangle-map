@@ -15,7 +15,7 @@ export class InfrastructureLayer extends BaseLayer {
   }
 
   generateData(params) {
-    const { clusters, random, width, height, padding, gridData, gridSize } = params;
+    const { clusters, random, width, height } = params;
     
     const data = {
       connections: [],
@@ -236,6 +236,14 @@ export class InfrastructureLayer extends BaseLayer {
             ctx.lineTo(pos.x + crossSize, pos.y);
             ctx.moveTo(pos.x, pos.y - crossSize);
             ctx.lineTo(pos.x, pos.y + crossSize);
+            ctx.stroke();
+            break;
+          
+          default:
+            // Default to regular circle
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, rBase, 0, Math.PI * 2);
+            ctx.fill();
             ctx.stroke();
             break;
         }

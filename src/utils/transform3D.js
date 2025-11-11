@@ -108,9 +108,7 @@ export class Transform3D {
 
     // Apply same rotation to get effective Z
     const cosX = Math.cos(this.rotationX);
-    const sinX = Math.sin(this.rotationX);
     const cosY = Math.cos(this.rotationY);
-    const sinY = Math.sin(this.rotationY);
     
     // Simplified: approximate Z after rotation
     const effectiveZ = z * cosX * cosY;
