@@ -1,4 +1,4 @@
-![Open Grpah img for this Tangle-map project shows a visually appearling tan background with a title]([https://myoctocat.com/assets/images/base-octocat.svg](https://github.com/pixelczar/tangle-map/blob/main/tangle-map-og-1200x600.png))
+![Open Grpah img for this Tangle-map project shows a visually appearling tan background with a title](https://github.com/pixelczar/tangle-map/blob/main/tangle-map-og-1200x600.png)
 
 
 # Tangle Map
