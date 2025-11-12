@@ -1,3 +1,6 @@
+/https://github.com/pixelczar/tangle-map/blob/main/tangle-map-og-1200x600.png
+
+
 # Tangle Map
 
 A generative art tool that visualizes the complex relationships between concepts, ideas, and systems. When you close your eyes and think about how ideas connect, they often exist in a 3D space—blobs of concepts relating to one another, reminiscent of aerial photography, maps, and land use diagrams.
