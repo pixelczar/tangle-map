@@ -32,7 +32,7 @@ export class FlowLayer extends BaseLayer {
   generateData(params) {
     const { clusters, random, width, height, padding, noise } = params;
     
-    console.log('FlowLayer: Generating data with', clusters.length, 'clusters');
+    console.log('FlowLayer: Generating data with', clusters ? clusters.length : 0, 'clusters');
     
     const data = {
       roads: [],
@@ -40,12 +40,15 @@ export class FlowLayer extends BaseLayer {
       interestPoints: []
     };
 
+    // Safety check: ensure clusters array exists and has elements
+    const hasClusters = clusters && clusters.length > 0;
+
     // Generate primary rivers that can flow to edges or connect clusters
     const roadCount = this.primaryRoadCount.min + Math.floor(random.random() * (this.primaryRoadCount.max - this.primaryRoadCount.min + 1));
     
     for (let i = 0; i < roadCount; i++) {
       // 60% chance to connect clusters, 40% chance to flow to edges
-      if (random.random() < 0.6 && clusters.length >= 2) {
+      if (random.random() < 0.6 && hasClusters && clusters.length >= 2) {
         // Pick two clusters to connect
         const clusterA = clusters[Math.floor(random.random() * clusters.length)];
         const clusterB = clusters[Math.floor(random.random() * clusters.length)];
@@ -58,9 +61,15 @@ export class FlowLayer extends BaseLayer {
         }
       } else {
         // Create a river that flows to canvas edges
-        const startCluster = clusters[Math.floor(random.random() * clusters.length)];
+        let startPoint;
+        if (hasClusters) {
+          startPoint = clusters[Math.floor(random.random() * clusters.length)];
+        } else {
+          // Fallback: use center of canvas if no clusters
+          startPoint = { x: width / 2, y: height / 2 };
+        }
         const edgeTarget = this.generateEdgeTarget(random, width, height, padding);
-        const road = this.createRiverRoad(startCluster, edgeTarget, random, noise, width, height, 'primary', padding);
+        const road = this.createRiverRoad(startPoint, edgeTarget, random, noise, width, height, 'primary', padding);
         if (road.points.length > 5) {
           data.roads.push(road);
         }
@@ -75,19 +84,24 @@ export class FlowLayer extends BaseLayer {
       
       // Pick a random river to branch from
       const parentRoad = data.roads[Math.floor(random.random() * data.roads.length)];
+      if (!parentRoad || !parentRoad.points || parentRoad.points.length < 2) continue;
+      
       const branchIndex = Math.floor(random.random() * (parentRoad.points.length - 2)) + 1; // Avoid endpoints
       const branchPoint = parentRoad.points[branchIndex];
+      if (!branchPoint) continue;
       
-      // 50% chance to flow to edge, 50% to cluster
+      // 50% chance to flow to edge, 50% to cluster (if available)
       let target;
-      if (random.random() < 0.5) {
+      if (random.random() < 0.5 || !hasClusters) {
         target = this.generateEdgeTarget(random, width, height, padding);
       } else {
         target = clusters[Math.floor(random.random() * clusters.length)];
       }
       
+      if (!target) continue;
+      
       const road = this.createRiverRoad(branchPoint, target, random, noise, width, height, 'secondary', padding);
-      if (road.points.length > 5) {
+      if (road && road.points && road.points.length > 5) {
         data.roads.push(road);
       }
     }
@@ -118,6 +132,12 @@ export class FlowLayer extends BaseLayer {
 
   createRiverRoad(start, end, random, noise, width, height, type, padding) {
     const points = [];
+    
+    // Safety check: ensure start and end are valid
+    if (!start || !end || typeof start.x !== 'number' || typeof start.y !== 'number' || 
+        typeof end.x !== 'number' || typeof end.y !== 'number') {
+      return { points: [], width: type === 'primary' ? this.primaryWidth : this.secondaryWidth, type };
+    }
     
     // Helper to keep within view with padding from edges
     const flowPadding = padding + 40; // Use system padding + extra 40px for flow lines

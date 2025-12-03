@@ -65,10 +65,26 @@ export class ArcLayer extends BaseLayer {
       });
     }
 
+    // Ensure we have at least one center to work with
+    if (arcCenters.length === 0) {
+      // Fallback: create a default center if no clusters or intersections available
+      const fallbackX = params.width ? params.width / 2 : 400;
+      const fallbackY = params.height ? params.height / 2 : 400;
+      arcCenters.push({ 
+        x: fallbackX, 
+        y: fallbackY, 
+        type: 'intersection',
+        intensity: 0.5
+      });
+    }
+
     const arcCount = this.arcCountRange.min + Math.floor(random.random() * (this.arcCountRange.max - this.arcCountRange.min + 1));
 
     for (let i = 0; i < arcCount; i++) {
       const center = arcCenters[Math.floor(random.random() * arcCenters.length)];
+      
+      // Safety check: skip if center is undefined
+      if (!center) continue;
       
       // Create purposeful arc types based on center type
       let arcs = [];
@@ -76,8 +92,11 @@ export class ArcLayer extends BaseLayer {
       if (center.type === 'cluster') {
         // Cluster-based arcs - create donut shapes
         arcs = this.generateClusterDonuts(center, clusters, random, gridSize);
-      } else {
+      } else if (center.type === 'intersection') {
         // Intersection-based arcs - create smaller donuts
+        arcs = this.generateIntersectionDonuts(center, random, gridSize);
+      } else {
+        // Fallback for any other type
         arcs = this.generateIntersectionDonuts(center, random, gridSize);
       }
 

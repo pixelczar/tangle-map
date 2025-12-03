@@ -94,6 +94,7 @@ const TangleMapApp = () => {
   const clusterSystemRef = useRef(null);
   const transform3DRef = useRef(null);
   const randomRef = useRef(new SeededRandom(42));
+  const lastClusterCountRef = useRef(3); // Track last cluster count used
   
   // Initialize state with localStorage values
   const getInitialState = () => {
@@ -186,6 +187,7 @@ const TangleMapApp = () => {
   const [layers, setLayers] = useState(initialState.layers);
   const [isAnimating, setIsAnimating] = useState(false);
   const [canvasOpacity, setCanvasOpacity] = useState(1);
+  const [canvasTransitionDuration, setCanvasTransitionDuration] = useState('2000ms');
   const [editionIdOpacity, setEditionIdOpacity] = useState(0);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [showControls, setShowControls] = useState(initialState.showControls);
@@ -249,10 +251,11 @@ const TangleMapApp = () => {
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    const wrapper = canvas.parentElement;
-    const wrapperRect = wrapper.getBoundingClientRect();
-    const width = wrapperRect.width;
-    const height = wrapperRect.height;
+    // Get dimensions from the outer container (skip the opacity wrapper div)
+    const outerContainer = canvas.parentElement?.parentElement;
+    const wrapperRect = outerContainer ? outerContainer.getBoundingClientRect() : canvas.parentElement.getBoundingClientRect();
+    const width = wrapperRect.width || window.innerWidth;
+    const height = wrapperRect.height || window.innerHeight;
     
     // Only set up canvas if dimensions changed or first render
     if (!canvas._lastWidth || canvas._lastWidth !== width || canvas._lastHeight !== height) {
@@ -268,9 +271,12 @@ const TangleMapApp = () => {
     }
     
     // Generate clusters only when needed
+    // Regenerate if: data regeneration requested, no clusters exist, or cluster count changed
+    const clusterCountChanged = lastClusterCountRef.current !== parameters.clusterCount;
     let clusters;
-    if (regenerateData || !clusterSystemRef.current.clusters.length) {
+    if (regenerateData || !clusterSystemRef.current.clusters.length || clusterCountChanged) {
       clusters = clusterSystemRef.current.generateClusters(randomRef.current, parameters.clusterCount, 64);
+      lastClusterCountRef.current = parameters.clusterCount; // Update tracked count
     } else {
       clusters = clusterSystemRef.current.getClusters(randomRef.current);
     }
@@ -334,6 +340,10 @@ const TangleMapApp = () => {
   // Regenerate when cluster count changes so it actually affects layout
   useEffect(() => {
     if (canvasRef.current) {
+      // Clear clusters to force regeneration with new count
+      if (clusterSystemRef.current) {
+        clusterSystemRef.current.clusters = [];
+      }
       render(0, true);
     }
   }, [parameters.clusterCount, render]);
@@ -419,18 +429,7 @@ const TangleMapApp = () => {
     };
   }, [is3D, render]);
 
-  // Handle parameter changes that require re-rendering
-  useEffect(() => {
-    if (clusterSystemRef.current) {
-      clusterSystemRef.current.clusters = []; // Clear clusters to regenerate
-      // Trigger a re-render after parameter changes
-      setTimeout(() => {
-        if (canvasRef.current) {
-          render(0, true); // Regenerate data for parameter changes
-        }
-      }, 0);
-    }
-  }, [parameters.clusterCount, render]);
+  // Note: Removed duplicate useEffect for clusterCount - handled above
 
   // Initial render
   useEffect(() => {
@@ -529,12 +528,13 @@ const TangleMapApp = () => {
     
     setIsAnimating(true);
     
-    // Fade out current canvas and edition ID
+    // Quick fade out (300ms)
+    setCanvasTransitionDuration('300ms');
     setCanvasOpacity(0);
     setEditionIdOpacity(0);
     
     // Wait for fade out to complete
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise(resolve => setTimeout(resolve, 350));
     
     // Generate new data
     setSeed(Math.floor(Math.random() * 10000));
@@ -546,28 +546,36 @@ const TangleMapApp = () => {
     
     clusterSystemRef.current.clusters = []; // Clear existing clusters
     
-    // Render new data
+    // Render new data while wrapper is at opacity 0 (invisible)
     render(0, true); // Regenerate data
     
     // Wait a moment for render to complete
     await new Promise(resolve => setTimeout(resolve, 100));
     
-    // Fade in new canvas
-    setCanvasOpacity(1);
-    
-    // Wait for fade in to complete
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Wait additional 500ms before fading in the fig text
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Fade in edition ID
-    setEditionIdOpacity(1);
-    
-    // Wait for edition ID fade in to complete
-    await new Promise(resolve => setTimeout(resolve, 400));
-    
+    // Enable button immediately after render completes - don't wait for fade-in
     setIsAnimating(false);
+    
+    // Change to slower fade in transition (1500ms for smoother effect)
+    setCanvasTransitionDuration('1500ms');
+    
+    // Force a reflow to ensure opacity 0 is committed, then trigger fade-in
+    if (canvasRef.current) {
+      // Force reflow by reading a property
+      void canvasRef.current.offsetHeight;
+    }
+    
+    // Use double requestAnimationFrame to ensure the browser recognizes the state change
+    // and applies the CSS transition properly
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setCanvasOpacity(1);
+      });
+    });
+    
+    // Fade in edition ID after a short delay (non-blocking)
+    setTimeout(() => {
+      setEditionIdOpacity(1);
+    }, 500);
   }, [render, generateEditionId, isAnimating]);
 
   // Initialize edition ID on first load
@@ -912,22 +920,33 @@ const TangleMapApp = () => {
           right: showControls ? '280px' : '0'
         }}
       >
-        <canvas 
-          ref={canvasRef}
-          className={`transition-opacity ease-in-out ${
-            isInitialLoad ? 'opacity-0' : 'opacity-100'
-          }`}
-          style={{ 
-            background: 'rgba(250, 248, 245, 1)',
-            display: 'block',
-            opacity: isInitialLoad ? undefined : canvasOpacity,
-            maxWidth: '90vw',
-            maxHeight: '90vh',
-            objectFit: 'contain',
-            cursor: is3D ? 'grab' : 'default',
-            transitionDuration: '2000ms'
+        {/* Canvas wrapper for smooth fade transitions */}
+        <div
+          style={{
+            opacity: isInitialLoad ? 0 : canvasOpacity,
+            transition: `opacity ${canvasTransitionDuration} ease-in-out`,
+            willChange: 'opacity',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '100%',
+            height: '100%',
+            position: 'absolute',
+            inset: 0
           }}
-        />
+        >
+          <canvas 
+            ref={canvasRef}
+            style={{ 
+              background: 'rgba(250, 248, 245, 1)',
+              display: 'block',
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              objectFit: 'contain',
+              cursor: is3D ? 'grab' : 'default'
+            }}
+          />
+        </div>
         
         {/* Canvas Overlay Title */}
         <div 
@@ -1115,6 +1134,26 @@ const TangleMapApp = () => {
                   max="6"
                   value={parameters.clusterCount}
                   onChange={(e) => updateParameter('clusterCount', parseInt(e.target.value))}
+                  onMouseUp={(e) => {
+                    // Ensure clusters are regenerated when user finishes adjusting
+                    if (clusterSystemRef.current) {
+                      clusterSystemRef.current.clusters = [];
+                    }
+                    // Force regeneration by calling render directly
+                    if (canvasRef.current) {
+                      render(0, true);
+                    }
+                  }}
+                  onTouchEnd={(e) => {
+                    // Ensure clusters are regenerated when user finishes adjusting (mobile)
+                    if (clusterSystemRef.current) {
+                      clusterSystemRef.current.clusters = [];
+                    }
+                    // Force regeneration by calling render directly
+                    if (canvasRef.current) {
+                      render(0, true);
+                    }
+                  }}
                   className="w-full"
                   style={{ accentColor: '#334155' }}
                 />
